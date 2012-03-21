@@ -38,14 +38,14 @@ class MessageHandlerRegistry {
   @throws(classOf[InvalidMessageException])
   def inputSerializerFor[RequestMsg, ResponseMsg](messageName: String): InputSerializer[RequestMsg, ResponseMsg] = {
     handlerMap.get(messageName).map(_.is)
-      .getOrElse(throw new InvalidMessageException("%s is not a registered method".format(messageName)))
+      .getOrElse(throw buildException(messageName))
       .asInstanceOf[InputSerializer[RequestMsg, ResponseMsg]]
   }
 
   @throws(classOf[InvalidMessageException])
   def outputSerializerFor[RequestMsg, ResponseMsg](messageName: String): OutputSerializer[RequestMsg, ResponseMsg] = {
     handlerMap.get(messageName).map(_.os)
-      .getOrElse(throw new InvalidMessageException("%s is not a registered method".format(messageName)))
+      .getOrElse(throw buildException(messageName))
       .asInstanceOf[OutputSerializer[RequestMsg, ResponseMsg]]
   }
 
@@ -58,7 +58,10 @@ class MessageHandlerRegistry {
   @throws(classOf[InvalidMessageException])
   def handlerFor[RequestMsg, ResponseMsg](messageName: String): RequestMsg => ResponseMsg = {
     handlerMap.get(messageName).map(_.handler)
-      .getOrElse(throw new InvalidMessageException("%s is not a registered method".format(messageName)))
+      .getOrElse(throw buildException(messageName))
       .asInstanceOf[RequestMsg => ResponseMsg]
   }
+  
+  def buildException(messageName: String) =
+    new InvalidMessageException("%s is not a registered method. Methods registered are %s".format(messageName, "(" + handlerMap.keys.mkString(",") + ")"))
 }
