@@ -147,6 +147,7 @@ class ClientChannelHandler(clientName: Option[String],
 
   def shutdown: Unit = {
     responseHandler.shutdown
+    cleanupExecutor.shutdownNow
     statsJMX.foreach { JMX.unregister(_) }
     serverErrorStrategyJMX.foreach { JMX.unregister(_) }
     clientStatsStrategyJMX.foreach { JMX.unregister(_) }
