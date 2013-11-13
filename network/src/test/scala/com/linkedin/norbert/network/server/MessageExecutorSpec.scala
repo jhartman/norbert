@@ -40,7 +40,8 @@ class MessageExecutorSpec extends Specification with Mockito with WaitFor with S
     1,
     1,
     100,
-    1000L)
+    1000L,
+    -1)
 
   var handlerCalled = false
   var either: Either[Exception, Ping] = null

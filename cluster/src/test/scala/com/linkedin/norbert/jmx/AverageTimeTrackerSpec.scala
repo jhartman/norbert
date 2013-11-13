@@ -40,7 +40,7 @@ class AverageTimeTrackerSpec extends Specification {
 
        (0 until 10).foreach { i =>
          MockClock.currentTime = 1000L * i
-         tracker.beginRequest(i)
+         tracker.beginRequest(i,0)
          (tracker.total / (i + 1)) must be_==(1000L * i / 2)
        }
     }

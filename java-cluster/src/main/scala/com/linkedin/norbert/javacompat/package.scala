@@ -28,16 +28,16 @@ package object javacompat {
   implicit def javaSetToImmutableSet[T](nodes: java.util.Set[T]): Set[T] = {
     collection.JavaConversions.asScalaSet(nodes).foldLeft(Set[T]()) { (set, n) => set + n }
   }
-  
+
   implicit def javaIntegerSetToScalaIntSet(set: java.util.Set[java.lang.Integer]): Set[Int] = {
     collection.JavaConversions.asScalaSet(set).foldLeft(collection.immutable.Set.empty[Int]) { _ + _.intValue }
   }
-  
+
   implicit def scalaIntSetToJavaIntegerSet(set: Set[Int]): java.util.Set[java.lang.Integer] = {
     val result = new java.util.HashSet[java.lang.Integer](set.size)
     set.foreach (result add _)
     result
-  }  
+  }
 
   implicit def scalaNodeToJavaNode(node: SNode): JNode = {
     if (node == null) null else JavaNode(node)

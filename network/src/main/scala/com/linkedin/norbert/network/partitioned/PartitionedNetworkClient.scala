@@ -25,11 +25,14 @@ import netty.NettyPartitionedNetworkClient
 import client.NetworkClientConfig
 import cluster.{Node, ClusterDisconnectedException, InvalidClusterException, ClusterClientComponent}
 import scala.util.Random
+import java.util
+
 
 object PartitionedNetworkClient {
   def apply[PartitionedId](config: NetworkClientConfig, loadBalancerFactory: PartitionedLoadBalancerFactory[PartitionedId]): PartitionedNetworkClient[PartitionedId] = {
     val nc = new NettyPartitionedNetworkClient(config, loadBalancerFactory)
     nc.start
+    PartitionedNetworkClient.retryStrategy = config.retryStrategy
     nc
   }
 
@@ -42,7 +45,7 @@ object PartitionedNetworkClient {
     nc.start
     nc
   }
-
+  var retryStrategy: Option[RetryStrategy] = None
 }
 
 /**
@@ -263,16 +266,59 @@ trait PartitionedNetworkClient[PartitionedId] extends BaseNetworkClient {
                                           (implicit is: InputSerializer[RequestMsg, ResponseMsg], os: OutputSerializer[RequestMsg, ResponseMsg]): ResponseIterator[ResponseMsg] = doIfConnected {
     if (ids == null || requestBuilder == null) throw new NullPointerException
     val nodes = calculateNodesFromIds(ids, capability, persistentCapability)
-    val queue = new ResponseQueue[ResponseMsg]
-    val resIter = new NorbertDynamicResponseIterator[ResponseMsg](nodes.size, queue)
-    nodes.foreach { case (node, idsForNode) =>
-      try {
-        doSendRequest(PartitionedRequest(requestBuilder(node, idsForNode), node, idsForNode, requestBuilder, is, os, if (maxRetry == 0) Some((a: Either[Throwable, ResponseMsg]) => {queue += a :Unit}) else Some(retryCallback[RequestMsg, ResponseMsg](queue.+=, maxRetry, capability, persistentCapability)_), 0, Some(resIter)))
-      } catch {
-        case ex: Exception => queue += Left(ex)
+    if (nodes.size <= 1 || PartitionedNetworkClient.retryStrategy == None) {
+      val queue = new ResponseQueue[ResponseMsg]
+      val resIter = new NorbertDynamicResponseIterator[ResponseMsg](nodes.size, queue)
+      nodes.foreach { case (node, idsForNode) =>
+        try {
+          doSendRequest(PartitionedRequest(requestBuilder(node, idsForNode), node, idsForNode, requestBuilder, is, os, if (maxRetry == 0) Some((a: Either[Throwable, ResponseMsg]) => {queue += a :Unit}) else Some(retryCallback[RequestMsg, ResponseMsg](queue.+=, maxRetry, capability, persistentCapability)_), 0, Some(resIter)))
+        } catch {
+          case ex: Exception => queue += Left(ex)
+        }
       }
+      return resIter
+    } else {
+      val nodes = calculateNodesFromIds(ids, None, None)
+      var setRequests: Map[PartitionedId, Node] = Map.empty[PartitionedId, Node]
+      nodes.foreach {
+        case (node, pids) => {
+          pids.foreach{
+	          case(pid) => setRequests += pid->node
+          }
+        }
+      }
+      val queue = new ResponseQueue[Tuple3[Node, Set[PartitionedId], ResponseMsg]]
+
+      /* wrapper so that iterator does not have to care about capability stuff */
+      def calculateNodesFromIdsSRetry(ids: Set[PartitionedId], excludedNodes: Set[Node], maxAttempts: Int)
+                                      :Map[Node, Set[PartitionedId]] = {
+        calculateNodesFromIds(ids, excludedNodes, maxAttempts, capability, persistentCapability).toMap
+      }
+
+      val resIter = new SelectiveRetryIterator[PartitionedId, RequestMsg, ResponseMsg](
+                    nodes.size, PartitionedNetworkClient.retryStrategy.get.initialTimeout, doSendRequest, setRequests,
+                    queue, calculateNodesFromIdsSRetry, requestBuilder, is, os, PartitionedNetworkClient.retryStrategy)
+
+      nodes.foreach {
+        case (node, idsForNode) => {
+          def callback(a:Either[Throwable, ResponseMsg]):Unit = {
+            a match {
+              case Left(t) => queue += Left(t)
+              case Right(r) => queue += Right(Tuple3(node, idsForNode, r))
+            }
+          }
+          try {
+            doSendRequest(PartitionedRequest(
+                          requestBuilder(node, idsForNode), node, idsForNode, requestBuilder, is, os,
+                          Some((a: Either[Throwable, ResponseMsg]) => {callback(a)}), 0, Some(resIter))
+                          )
+          } catch {
+            case ex: Exception => queue += Left(ex)
+          }
+        }
+      }
+      resIter
     }
-    resIter
   }
 
   /**

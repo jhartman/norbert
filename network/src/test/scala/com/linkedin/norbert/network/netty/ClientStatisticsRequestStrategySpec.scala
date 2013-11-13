@@ -35,7 +35,7 @@ class ClientStatisticsRequestStrategySpec extends Specification with Mockito {
       // Give everybody 10 requests
       val requests = nodes.map { node =>
         val uuids = (0 until 10).map(i => UUID.randomUUID)
-        uuids.foreach{ uuid => statsActor.beginRequest(node, uuid) }
+        uuids.foreach{ uuid => statsActor.beginRequest(node, uuid, 0) }
         (node, uuids)
       }.toMap
 

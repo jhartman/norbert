@@ -1,0 +1,18 @@
+apply plugin: 'java'
+apply plugin: 'scala'
+
+dependencies {
+  compile externalDependency.scalaLibrary 
+  compile externalDependency.zookeeper
+  compile externalDependency.protobuf
+  compile externalDependency.log4j
+
+  testCompile externalDependency.specs
+  testCompile externalDependency.mockitoAll
+  testCompile externalDependency.cglib
+  testCompile externalDependency.objenesis
+
+  scalaTools externalDependency.scalaCompiler
+  scalaTools externalDependency.scalaLibrary
+}
+

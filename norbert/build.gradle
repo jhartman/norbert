@@ -1,0 +1,18 @@
+apply plugin: 'java'
+
+configurations {
+  compile {
+    transitive = false
+  }
+}
+
+dependencies {
+  compile project(':cluster')
+  compile project(':network')
+  compile project(':java-cluster')
+  compile project(':java-network')
+}
+
+jar {
+    from { configurations.compile.collect { it.isDirectory() ? it : zipTree(it) } }
+}

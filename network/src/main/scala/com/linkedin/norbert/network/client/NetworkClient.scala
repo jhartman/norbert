@@ -24,6 +24,10 @@ import cluster._
 import network.common._
 import netty.NettyNetworkClient
 
+object NetworkClientConfig {
+  var defaultIteratorTimeout = NetworkDefaults.DEFAULT_ITERATOR_TIMEOUT;
+}
+
 class NetworkClientConfig {
   var clusterClient: ClusterClient = _
   var clientName: String = _
@@ -58,6 +62,8 @@ class NetworkClientConfig {
   var responseHandlerMaxWaitingQueueSize = NetworkDefaults.RESPONSE_THREAD_POOL_QUEUE_SIZE
 
   var avoidByteStringCopy = NetworkDefaults.AVOID_BYTESTRING_COPY
+
+  var retryStrategy:Option[RetryStrategy] = None 
 }
 
 object NetworkClient {

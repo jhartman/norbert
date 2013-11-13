@@ -269,3 +269,4 @@ If you are building a partitioned cluster then you will want to use the `Partiti
 * maxConnectionsPerNode - the maximum number of open connections to a node. The total number of connections that can be opened by a network client is maxConnectionsPerNode * number of nodes
 * staleRequestTimeoutMins - the number of minutes to keep a request that is waiting for a response
 * staleRequestCleanupFrequenceMins - the frequency to clean up stale requests
+
