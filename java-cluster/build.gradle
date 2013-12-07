@@ -1,0 +1,11 @@
+apply plugin: 'java'
+apply plugin: 'scala'
+
+dependencies {
+  compile project(':cluster')
+  compile externalDependency.scalaLibrary 
+
+  scalaTools externalDependency.scalaCompiler
+  scalaTools externalDependency.scalaLibrary
+}
+

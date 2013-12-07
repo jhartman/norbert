@@ -162,7 +162,7 @@ class NetworkServerSpec extends Specification with Mockito with SampleMessage {
 
       got {
         one(networkServer.clusterClient).markNodeAvailable(1, 0)
-        one(networkServer.clusterClient).markNodeUnavailable(1)
+        two(networkServer.clusterClient).markNodeUnavailable(1)
       }
     }
 

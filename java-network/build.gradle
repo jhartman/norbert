@@ -1,0 +1,12 @@
+apply plugin: 'java'
+apply plugin: 'scala'
+
+dependencies {
+  compile project(':network')
+  compile project(':java-cluster')
+  compile externalDependency.scalaLibrary 
+
+  scalaTools externalDependency.scalaCompiler
+  scalaTools externalDependency.scalaLibrary
+}
+

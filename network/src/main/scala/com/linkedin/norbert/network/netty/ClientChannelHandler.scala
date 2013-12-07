@@ -102,7 +102,7 @@ class ClientChannelHandler(clientName: Option[String],
 
     if(!request.callback.isEmpty) {
       requestMap.put(request.id, request)
-      stats.beginRequest(request.node, request.id)
+      stats.beginRequest(request.node, request.id, 0)
     }
 
     val message = NorbertProtos.NorbertMessage.newBuilder
@@ -122,7 +122,9 @@ class ClientChannelHandler(clientName: Option[String],
     val requestId = new UUID(message.getRequestIdMsb, message.getRequestIdLsb)
 
     requestMap.get(requestId) match {
-      case null => log.warn("Received a response message [%s] without a corresponding request".format(message))
+      case null => {
+        log.warn("Received a response message UUID: [%s] without a corresponding request from %s".format(requestId, ctx.getChannel().getRemoteAddress()))
+      }
       case request =>
         requestMap.remove(requestId)
 
