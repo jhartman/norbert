@@ -233,10 +233,14 @@ trait PartitionedNetworkClient[PartitionedId] extends BaseNetworkClient {
   (implicit is: InputSerializer[RequestMsg, ResponseMsg], os: OutputSerializer[RequestMsg, ResponseMsg]): ResponseIterator[ResponseMsg] =
     sendRequest(ids, requestBuilder, None, None)
 
-  def sendRequest[RequestMsg, ResponseMsg](ids: Set[PartitionedId], requestBuilder: (Node, Set[PartitionedId]) => RequestMsg, capability: Option[Long], dupOk: Boolean)
+  def sendRequest[RequestMsg, ResponseMsg](ids: Set[PartitionedId], requestBuilder: (Node, Set[PartitionedId]) => RequestMsg, capability: Option[Long])
+  (implicit is: InputSerializer[RequestMsg, ResponseMsg], os: OutputSerializer[RequestMsg, ResponseMsg]): ResponseIterator[ResponseMsg] =
+    sendRequest(ids, requestBuilder, 0, capability, None)
+
+  def sendRequest[RequestMsg, ResponseMsg](ids: Set[PartitionedId], requestBuilder: (Node, Set[PartitionedId]) => RequestMsg, capability: Option[Long], dupOk : Boolean)
   (implicit is: InputSerializer[RequestMsg, ResponseMsg], os: OutputSerializer[RequestMsg, ResponseMsg]): ResponseIterator[ResponseMsg] =
     sendRequest(ids, requestBuilder, 0, capability, None, dupOk)
- 
+
   def sendRequest[RequestMsg, ResponseMsg](ids: Set[PartitionedId], requestBuilder: (Node, Set[PartitionedId]) => RequestMsg, capability: Option[Long], persistentCapability: Option[Long])
   (implicit is: InputSerializer[RequestMsg, ResponseMsg], os: OutputSerializer[RequestMsg, ResponseMsg]): ResponseIterator[ResponseMsg] = doIfConnected {
     sendRequest(ids, requestBuilder, 0, capability, persistentCapability)
