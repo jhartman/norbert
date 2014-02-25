@@ -24,6 +24,10 @@ import cluster._
 import network.common._
 import netty.NettyNetworkClient
 
+object NetworkClientConfig {
+  var defaultIteratorTimeout = NetworkDefaults.DEFAULT_ITERATOR_TIMEOUT;
+}
+
 class NetworkClientConfig {
   var clusterClient: ClusterClient = _
   var clientName: String = _
@@ -37,7 +41,6 @@ class NetworkClientConfig {
 
   var staleRequestTimeoutMins = NetworkDefaults.STALE_REQUEST_TIMEOUT_MINS
   var staleRequestCleanupFrequenceMins = NetworkDefaults.STALE_REQUEST_CLEANUP_FREQUENCY_MINS
-
 
   /**
    * Represents how long a channel stays alive. There are some specifics:
@@ -58,6 +61,9 @@ class NetworkClientConfig {
   var responseHandlerMaxWaitingQueueSize = NetworkDefaults.RESPONSE_THREAD_POOL_QUEUE_SIZE
 
   var avoidByteStringCopy = NetworkDefaults.AVOID_BYTESTRING_COPY
+
+  var retryStrategy:Option[RetryStrategy] = None 
+  var duplicatesOk:Boolean = false
 }
 
 object NetworkClient {
@@ -135,7 +141,7 @@ trait NetworkClient extends BaseNetworkClient {
   
   def sendRequest[RequestMsg, ResponseMsg](request: RequestMsg, capability: Option[Long], persistentCapability: Option[Long])
   (implicit is: InputSerializer[RequestMsg, ResponseMsg], os: OutputSerializer[RequestMsg, ResponseMsg]): Future[ResponseMsg] = {
-    val future = new FutureAdapter[ResponseMsg]
+    val future = new FutureAdapterListener[ResponseMsg]
     sendRequest(request, future, capability, persistentCapability)
     future
   }

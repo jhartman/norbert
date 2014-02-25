@@ -50,6 +50,8 @@ class NettyNetworkServer(config: NetworkServerConfig) extends NetworkServer {
 
   def bind(nodeId: Int) = underlying.bind(nodeId)
 
+  def bindByPort(port: Int) = underlying.bindByPort(port)
+
   def registerHandler[RequestMsg, ResponseMsg](handler: RequestHandler[RequestMsg, ResponseMsg], serializer: Serializer[RequestMsg, ResponseMsg]) = {
     underlying.registerHandler((request: RequestMsg) => handler.handleRequest(request))(serializer, serializer)
   }

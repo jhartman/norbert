@@ -711,7 +711,7 @@ class PartitionedNetworkClientSpec extends BaseNetworkClientSpecification {
         val resIter = nc2.sendRequest(Set(1,2,3), messageCustomizer _, MAX_RETRY)
         nc2.clusterIoClient.invocationCount mustEqual (MAX_RETRY * 4)
         while (resIter.hasNext) {
-          resIter.next must throwAnException
+          resIter.next must throwAnException[Exception]
         }
       }
 

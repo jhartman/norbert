@@ -2,7 +2,7 @@ package com.linkedin.norbert
 package network
 package netty
 
-import org.specs.Specification
+import org.specs.SpecificationWithJUnit
 import org.specs.mock.Mockito
 import client.ResponseHandler
 import org.jboss.netty.channel._
@@ -15,7 +15,7 @@ import common.SampleMessage
 /**
  * Test to cover association of RequestAccess with remote exception
  */
-class ClientChannelHandlerSpec extends Specification with Mockito with SampleMessage {
+class ClientChannelHandlerSpec extends SpecificationWithJUnit with Mockito with SampleMessage {
 
   val responseHandler = mock[ResponseHandler]
   val clientChannelHandler = new ClientChannelHandler(clientName = Some("booClient"),

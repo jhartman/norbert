@@ -17,7 +17,7 @@ package com.linkedin.norbert
 package network
 package netty
 
-import org.specs.Specification
+import org.specs.SpecificationWithJUnit
 import org.jboss.netty.bootstrap.ClientBootstrap
 import org.jboss.netty.channel.group.{ChannelGroupFuture, ChannelGroup}
 import org.specs.mock.Mockito
@@ -27,13 +27,14 @@ import java.util.concurrent.{TimeoutException, TimeUnit}
 import java.net.InetSocketAddress
 import norbertutils.MockClock
 
-class ChannelPoolSpec extends Specification with Mockito {
+class ChannelPoolSpec extends SpecificationWithJUnit with Mockito {
   val channelGroup = mock[ChannelGroup]
   val bootstrap = mock[ClientBootstrap]
   val address = new InetSocketAddress("127.0.0.1", 31313)
+  val mockClock = new MockClock
 
   val channelPool = new ChannelPool(address, 1, 100, 100, bootstrap, channelGroup,
-    closeChannelTimeMillis = 10000, errorStrategy = None, clock = MockClock)
+    closeChannelTimeMillis = 10000, errorStrategy = None, clock = mockClock)
 
   "ChannelPool" should {
     "close the ChannelGroup when close  is called" in {
@@ -135,8 +136,7 @@ class ChannelPoolSpec extends Specification with Mockito {
       val request = mock[Request[_, _]]
       channelPool.sendRequest(request)
       future.listener.operationComplete(future)
-
-      MockClock.currentTime = 20000L
+      mockClock.currentTime = 20000L
 
       channelPool.sendRequest(request)
       future.listener.operationComplete(future)
@@ -149,7 +149,7 @@ class ChannelPoolSpec extends Specification with Mockito {
 
     "not open a new channel if channel expiration is disabled" in {
       val channelPool = new ChannelPool(address, 1, 100, 100, bootstrap, channelGroup,
-        closeChannelTimeMillis = -1L, errorStrategy = None, clock = MockClock)
+        closeChannelTimeMillis = -1L, errorStrategy = None, clock = mockClock)
       val channel = mock[Channel]
       val future = new TestChannelFuture(channel, true)
 
@@ -161,8 +161,7 @@ class ChannelPoolSpec extends Specification with Mockito {
       channelPool.sendRequest(request)
       channel.isConnected returns true
       future.listener.operationComplete(future)
-
-      MockClock.currentTime = 20000L
+      mockClock.currentTime = 20000L
 
       channelPool.sendRequest(request)
       future.listener.operationComplete(future)
@@ -321,5 +320,12 @@ class ChannelPoolSpec extends Specification with Mockito {
     def setSuccess = false
 
     def setProgress(p1: Long, p2: Long, p3: Long) = false
+    
+    def syncUninterruptibly = null
+    
+    def sync = null
+    
+    def rethrowIfFailed = null
+    
   }
 }

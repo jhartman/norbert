@@ -20,6 +20,7 @@ package partitioned
 import loadbalancer.PartitionedLoadBalancerFactory
 import client.NetworkClientConfig
 import cluster.{ClusterClient}
+import com.linkedin.norbert.network.common.RetryStrategy
 
 /**
  * Author: jhartman
@@ -31,7 +32,9 @@ class PartitionedNetworkClientFactory[PartitionedId](clientName: String,
                                                      closeChannelTimeMillis: Long,
                                                      norbertOutlierMultiplier: Double,
                                                      norbertOutlierConstant: Double,
-                                                     partitionedLoadBalancerFactory: PartitionedLoadBalancerFactory[PartitionedId])
+                                                     partitionedLoadBalancerFactory: PartitionedLoadBalancerFactory[PartitionedId],
+						     enableSelectiveRetry: Boolean = false,  	
+						     retryStrategy: RetryStrategy = null)
 {
 
   def createPartitionedNetworkClient : PartitionedNetworkClient[PartitionedId] = {
@@ -41,6 +44,12 @@ class PartitionedNetworkClientFactory[PartitionedId](clientName: String,
     config.outlierMuliplier = norbertOutlierMultiplier
     config.outlierConstant = norbertOutlierConstant
     config.clusterClient = ClusterClient(clientName, serviceName, zooKeeperConnectString, zooKeeperSessionTimeoutMillis)
+    if(enableSelectiveRetry) {
+      if(retryStrategy == null) 
+        throw new IllegalArgumentException("Retry strategy needs to be provided if you enable selective retry")
+      else
+	config.retryStrategy = Some(retryStrategy)
+    }   	
     val partitionedNetworkClient = PartitionedNetworkClient(config, partitionedLoadBalancerFactory)
 
     partitionedNetworkClient

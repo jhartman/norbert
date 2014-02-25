@@ -42,6 +42,7 @@ object ClusterDependencies {
   val MOCKITO_VER = "1.8.4"
   val CGLIB_VER = "2.1_3"
   val OBJENESIS = "1.0"
+  val JUNIT_VER = "4.8.1"
 
   val zookeeper = "org.apache.zookeeper" % "zookeeper" % ZOOKEEPER_VER
 
@@ -57,18 +58,22 @@ object ClusterDependencies {
 
   val objenesis = "org.objenesis" % "objenesis" % OBJENESIS % "test"
 
-  val deps = Seq(zookeeper, protobuf, log4j, specs, mockito, cglib, objenesis)
+  val junit = "junit" % "junit" % JUNIT_VER % "test"
+
+  val deps = Seq(zookeeper, protobuf, log4j, specs, mockito, cglib, objenesis, junit)
 }
 
 object NetworkDependencies {
   val NETTY_VER = "3.2.3.Final"
   val SLF4J_VER = "1.5.6"
+  val JUNIT_VER = "4.8.1"
 
   val netty = "org.jboss.netty" % "netty" % NETTY_VER
   val slf4j = "org.slf4j" % "slf4j-api" % SLF4J_VER
   val slf4jLog4j = "org.slf4j" % "slf4j-log4j12" % SLF4J_VER
+  val junit = "junit" % "junit" % JUNIT_VER % "test"
 
-  val deps = Seq(netty, slf4j, slf4jLog4j)
+  val deps = Seq(netty, slf4j, slf4jLog4j, junit)
 }
 
 object NorbertBuild extends Build {

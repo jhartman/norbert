@@ -18,11 +18,11 @@ package network
 package client
 package loadbalancer
 
-import org.specs.Specification
+import org.specs.SpecificationWithJUnit
 import cluster.Node
 import common.Endpoint
 
-class RoundRobinLoadBalancerFactorySpec extends Specification {
+class RoundRobinLoadBalancerFactorySpec extends SpecificationWithJUnit {
   "RoundRobinLoadBalancerFactory" should {
     "create a round robin load balancer" in {
       val nodes = Set(Node(1, "localhost:31310", true), Node(2, "localhost:31311", true), Node(3, "localhost:31312", true),
