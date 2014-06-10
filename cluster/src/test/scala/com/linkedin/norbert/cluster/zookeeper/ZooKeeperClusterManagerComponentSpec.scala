@@ -18,7 +18,7 @@ package cluster
 package zookeeper
 
 import common.ClusterNotificationManagerComponent
-import org.specs.Specification
+import org.specs.SpecificationWithJUnit
 import org.specs.mock.Mockito
 import actors.Actor
 import Actor._
@@ -28,7 +28,7 @@ import org.apache.zookeeper._
 import java.util.ArrayList
 import java.util
 
-class ZooKeeperClusterManagerComponentSpec extends Specification with Mockito with WaitFor with ZooKeeperClusterManagerComponent
+class ZooKeeperClusterManagerComponentSpec extends SpecificationWithJUnit with Mockito with WaitFor with ZooKeeperClusterManagerComponent
         with ClusterNotificationManagerComponent {
   import ZooKeeperMessages._
   import ClusterManagerMessages._

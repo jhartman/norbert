@@ -1,0 +1,18 @@
+apply plugin: 'java'
+
+configurations {
+  compile {
+    transitive = false
+  }
+}
+
+dependencies {
+  compile project(":cluster$scalaSuffix")
+  compile project(":network$scalaSuffix")
+  compile project(":java-cluster$scalaSuffix")
+  compile project(":java-network$scalaSuffix")
+}
+
+jar {
+    from { configurations.compile.collect { it.isDirectory() ? it : zipTree(it) } }
+}

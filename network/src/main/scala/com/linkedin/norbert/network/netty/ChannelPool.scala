@@ -75,6 +75,7 @@ class ChannelPool(address: InetSocketAddress, maxConnections: Int, openTimeoutMi
   private val waitingWrites = new LinkedBlockingQueue[Request[_, _]]
   private val poolSize = new AtomicInteger(0)
   private val closed = new AtomicBoolean
+  private val softClosed = new AtomicBoolean
   private val requestsSent = new AtomicInteger(0)
   private val lock = new java.util.concurrent.locks.ReentrantReadWriteLock(true)
 
@@ -102,10 +103,21 @@ class ChannelPool(address: InetSocketAddress, maxConnections: Int, openTimeoutMi
         openChannel(request)
     }
   }
+ 
+  /*
+   * This is a soft close where we get rid of the JMX values only.
+   * The reason for splitting it in two phases is to avoid extra synchronization overhead
+  */ 
+  def unregisterJMX {
+    softClosed.set(true)
+    jmxHandle.foreach {JMX.unregister(_)}
+  }
 
   def close {
     if (closed.compareAndSet(false, true)) {
-      jmxHandle.foreach { JMX.unregister(_) }
+      if(!softClosed.get()) {
+        jmxHandle.foreach {JMX.unregister(_)}
+      }
       channelGroup.close.awaitUninterruptibly
     }
   }

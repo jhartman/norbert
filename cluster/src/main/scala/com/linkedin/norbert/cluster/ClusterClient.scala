@@ -24,6 +24,7 @@ import jmx.JMX.MBean
 import jmx.JMX
 import logging.Logging
 import zookeeper.ZooKeeperClusterClient
+import java.net.InetAddress
 
 /**
  * ClusterClient companion object provides factory methods for creating a <code>ClusterClient</code> instance.
@@ -124,6 +125,34 @@ trait ClusterClient extends Logging {
    * @throws ClusterDisconnectedException thrown if the cluster is not connected when the method is called
    */
   def nodeWithId(nodeId: Int): Option[Node] = nodeWith(_.id == nodeId)
+
+  /**
+   * Looks up the node with with the specified port for the machine which is running this code.
+   *
+   * @param port the port of the current hostname of the node to find
+   *
+   * @return <code>Some</code> with the node if found, otherwise <code>None</code>
+   * @throws ClusterDisconnectedException thrown if the cluster is not connected when the method is called
+   */
+  def myNodeByPort(port: Int): Option[Node] = {
+    val url = InetAddress.getLocalHost.getCanonicalHostName
+    val node = nodeByUrl(url, port)
+    if(node == None) {
+      log.warn("No node could be found for this machine's URL and port: %s:%d".format(url, port))
+    }
+    node
+  }
+
+  /**
+   * Looks up the node with with the specified url and port.
+   *
+   * @param hostname the hostname of the node to find
+   * @param port the id of the node to find
+   *
+   * @return <code>Some</code> with the node if found, otherwise <code>None</code>
+   * @throws ClusterDisconnectedException thrown if the cluster is not connected when the method is called
+   */
+  def nodeByUrl(hostname:String, port:Int) = nodeWith(_.url == hostname + ":" + port)
 
   /**
    * Adds a node to the cluster metadata.

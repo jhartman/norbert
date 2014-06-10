@@ -15,13 +15,13 @@ package com.linkedin.norbert.norbertutils
 * License for the specific language governing permissions and limitations under
 * the License.
 */
-import org.specs.Specification
+import org.specs.SpecificationWithJUnit
 import org.specs.mock.Mockito
 import org.specs.util.WaitFor
 import actors._
 import actors.Actor._
 
-class KeepAliveActorSpec extends Specification {
+class KeepAliveActorSpec extends SpecificationWithJUnit {
   case class Divide(n: Int, d: Int)
 
   class TestActor extends Actor {

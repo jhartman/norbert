@@ -17,12 +17,12 @@ package com.linkedin.norbert
 package cluster
 package common
 
-import org.specs.Specification
+import org.specs.SpecificationWithJUnit
 import org.specs.mock.Mockito
 import org.specs.util.WaitFor
 import actors.Actor._
 
-class ClusterNotificationManagerComponentSpec extends Specification with Mockito with WaitFor with ClusterNotificationManagerComponent {
+class ClusterNotificationManagerComponentSpec extends SpecificationWithJUnit with Mockito with WaitFor with ClusterNotificationManagerComponent {
   val clusterNotificationManager = new ClusterNotificationManager
 
   val shortNodes = Set(Node(1, "localhost:31313", false, Set(1, 2)))
