@@ -32,9 +32,13 @@ class RoundRobinLoadBalancerFactory extends LoadBalancerFactory with LoadBalance
     def nextNode(capability: Option[Long] = None, permanentCapability: Option[Long] = None) = {
       val activeEndpoints = endpoints.filter{ (e : Endpoint) => e.canServeRequests && e.node.isCapableOf(capability, permanentCapability) }
 
-      if(activeEndpoints.isEmpty)
-        Some(chooseNext(endpoints.filter(_.node.isCapableOf(capability, permanentCapability)), counter).node)
-      else if(endpoints.isEmpty)
+      if(activeEndpoints.isEmpty) {
+        var capableEndpoints = endpoints.filter(_.node.isCapableOf(capability, permanentCapability))
+        if(capableEndpoints.isEmpty)
+          None
+        else
+          Some(chooseNext(capableEndpoints, counter).node)
+      } else if(endpoints.isEmpty)
         None
       else
         Some(chooseNext(activeEndpoints, counter).node)

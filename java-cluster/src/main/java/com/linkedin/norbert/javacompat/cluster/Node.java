@@ -24,4 +24,6 @@ public interface Node {
   boolean isAvailable();
   boolean isCapableOf(Long c);
   boolean isCapableOf(Long c, Long pc);
+  Long getCapability();
+  Long getPersistentCapability();
 }

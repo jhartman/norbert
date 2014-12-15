@@ -27,7 +27,7 @@ trait Clock {
   def getCurrentTimeOffsetMicroseconds: Long
 }
 
-object MockClock extends Clock {
+class MockClock extends Clock {
   var currentTime = 0L
   override def getCurrentTimeMilliseconds = currentTime
   override def getCurrentTimeOffsetMicroseconds = currentTime

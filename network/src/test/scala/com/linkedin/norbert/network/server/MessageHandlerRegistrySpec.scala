@@ -17,12 +17,12 @@ package com.linkedin.norbert
 package network
 package server
 
-import org.specs.Specification
+import org.specs.SpecificationWithJUnit
 import org.specs.mock.Mockito
 import protos.NorbertExampleProtos
 import common.SampleMessage
 
-class MessageHandlerRegistrySpec extends Specification with Mockito with SampleMessage {
+class MessageHandlerRegistrySpec extends SpecificationWithJUnit with Mockito with SampleMessage {
   val messageHandlerRegistry = new MessageHandlerRegistry
 
   var handled: Ping = _

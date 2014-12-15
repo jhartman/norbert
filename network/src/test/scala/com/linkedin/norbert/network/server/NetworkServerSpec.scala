@@ -17,13 +17,13 @@ package com.linkedin.norbert
 package network
 package server
 
-import org.specs.Specification
+import org.specs.SpecificationWithJUnit
 import org.specs.mock.Mockito
 import cluster._
 import network.common.SampleMessage
 import scala.collection.mutable.MutableList
 
-class NetworkServerSpec extends Specification with Mockito with SampleMessage {
+class NetworkServerSpec extends SpecificationWithJUnit with Mockito with SampleMessage {
   val networkServer = new NetworkServer with ClusterClientComponent with ClusterIoServerComponent with MessageHandlerRegistryComponent
       with MessageExecutorComponent {
     val clusterIoServer = mock[ClusterIoServer]
@@ -162,7 +162,7 @@ class NetworkServerSpec extends Specification with Mockito with SampleMessage {
 
       got {
         one(networkServer.clusterClient).markNodeAvailable(1, 0)
-        one(networkServer.clusterClient).markNodeUnavailable(1)
+        two(networkServer.clusterClient).markNodeUnavailable(1)
       }
     }
 

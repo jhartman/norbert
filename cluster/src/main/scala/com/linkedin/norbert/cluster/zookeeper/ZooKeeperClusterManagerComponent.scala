@@ -37,6 +37,8 @@ trait ZooKeeperClusterManagerComponent extends ClusterManagerComponent {
     //synchronization is not needed between this method
     case class NodeChildrenChanged(path: String) extends ZooKeeperMessage
     case class NodeDataChanged(path: String) extends ZooKeeperMessage
+    case class NodeDeleted(path: String) extends ZooKeeperMessage
+    case class NodeCreated(path: String) extends ZooKeeperMessage
   }
 
   class ZooKeeperClusterManager(connectString: String, sessionTimeout: Int, serviceName: String)
@@ -88,6 +90,19 @@ trait ZooKeeperClusterManagerComponent extends ClusterManagerComponent {
 
           case NodeDataChanged(path) => if (path.startsWith(MEMBERSHIP_NODE)) {
             handleCapabilityMemberChanged(path)
+          }
+
+          case NodeDeleted(path) => if (path.equals(MEMBERSHIP_NODE) || path.equals(AVAILABILITY_NODE)) {
+            //zookeeper data corrupted
+            log.fatal("Received a zookeeper corruption message")    
+          } else if (path.startsWith(MEMBERSHIP_NODE) || path.startsWith(AVAILABILITY_NODE)) {
+            log.info("Received an event where a node was deleted:%s".format(path))
+          } else {
+            log.error("Node deleted unexpectedly %s".format(path))
+          }
+
+          case NodeCreated(path) => {
+            log.error("Received an unexpected create event:%s".format(path))
           }
 
           case m => log.error("Received unknown message: %s".format(m))
@@ -461,6 +476,10 @@ trait ZooKeeperClusterManagerComponent extends ClusterManagerComponent {
         case EventType.NodeChildrenChanged => zooKeeperManager ! NodeChildrenChanged(event.getPath)
 
         case EventType.NodeDataChanged => zooKeeperManager ! NodeDataChanged(event.getPath)
+
+        case EventType.NodeCreated => zooKeeperManager ! NodeCreated(event.getPath)
+
+        case EventType.NodeDeleted => zooKeeperManager ! NodeDeleted(event.getPath)
       }
     }
 

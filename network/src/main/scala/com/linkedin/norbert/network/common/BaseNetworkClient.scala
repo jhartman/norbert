@@ -114,7 +114,7 @@ trait BaseNetworkClient extends Logging {
    */
   def sendRequestToNode[RequestMsg, ResponseMsg](request: RequestMsg, node: Node)
    (implicit is: InputSerializer[RequestMsg, ResponseMsg], os: OutputSerializer[RequestMsg, ResponseMsg]): Future[ResponseMsg] = {
-    val future = new FutureAdapter[ResponseMsg]
+    val future = new FutureAdapterListener[ResponseMsg]
     sendRequestToNode(request, node, future)
     future
   }

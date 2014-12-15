@@ -16,31 +16,33 @@
 package com.linkedin.norbert
 package jmx
 
-import org.specs.Specification
+import org.specs.SpecificationWithJUnit
 import norbertutils.{SystemClock, MockClock, Clock, ClockComponent}
 
-class AverageTimeTrackerSpec extends Specification {
+class AverageTimeTrackerSpec extends SpecificationWithJUnit {
+  val mockClock = new MockClock
+
   "RequestTimeTracker" should {
     "correctly average the times provided" in {
-      val a = new FinishedRequestTimeTracker(MockClock, 100)
+      val a = new FinishedRequestTimeTracker(mockClock, 100)
       (1 to 100).foreach{ t =>
         a.addTime(t)
-        MockClock.currentTime = t
+        mockClock.currentTime = t
       }
       a.total must be_==(5050)
 
       a.addTime(101)
-      MockClock.currentTime = 101
+      mockClock.currentTime = 101
 
       a.total must be_==(5150) // first one gets knocked out
     }
 
     "Correctly calculate unfinished times" in {
-       val tracker = new PendingRequestTimeTracker[Int](MockClock)
+       val tracker = new PendingRequestTimeTracker[Int](mockClock)
 
        (0 until 10).foreach { i =>
-         MockClock.currentTime = 1000L * i
-         tracker.beginRequest(i)
+         mockClock.currentTime = 1000L * i
+         tracker.beginRequest(i,0)
          (tracker.total / (i + 1)) must be_==(1000L * i / 2)
        }
     }

@@ -18,10 +18,31 @@ package network
 package partitioned
 package loadbalancer
 
+import java.security.MessageDigest
+
 /**
  * Object which provides hash function implementations.
  */
 object HashFunctions {
+  /**
+   * A copy of the md5 hash function from the javacompat. This can be used to port your current work from javacompat
+   * without changing the hosts that requests will route to.
+   *
+   * @param bytes the bytes to hash
+   *
+   * @return the hashed value of the bytes
+   *
+   */
+  def md5[T <% Array[Byte]](bytes: T): Int = {
+    try {
+      val md = MessageDigest.getInstance("MD5")
+      val kbytes: Array[Byte] = md.digest(bytes)
+      (kbytes(3) & 0xFF) << 24 | (kbytes(2) & 0xFF) << 16 | (kbytes(1) & 0xFF) << 8 | kbytes(0) & 0xFF
+    } catch {
+      case e: Exception => throw new RuntimeException(e.getMessage, e)
+    }
+  }
+
   /**
    * An implementation of the FNV hash function.
    *
