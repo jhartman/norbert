@@ -17,14 +17,14 @@ package com.linkedin.norbert
 package network
 package netty
 
-import org.specs.Specification
+import org.specs.SpecificationWithJUnit
 import java.net.InetSocketAddress
 import org.specs.util.WaitFor
 import org.specs.mock.Mockito
 import cluster.{InvalidNodeException, Node}
 import common.AlwaysAvailableRequestStrategy
 
-class NettyClusterIoClientComponentSpec extends Specification with Mockito with WaitFor with NettyClusterIoClientComponent {
+class NettyClusterIoClientComponentSpec extends SpecificationWithJUnit with Mockito with WaitFor with NettyClusterIoClientComponent {
   val messageRegistry = null
 
   val channelPoolFactory = mock[ChannelPoolFactory]

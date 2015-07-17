@@ -90,6 +90,21 @@ class NettyNetworkClient(config: NetworkClientConfig, loadBalancerFactory: LoadB
   def sendRequest[RequestMsg, ResponseMsg](requestMsg: RequestMsg, serializer: Serializer[RequestMsg, ResponseMsg]) =
     underlying.sendRequest(requestMsg)(serializer, serializer)
 
+  def sendRequest[RequestMsg, ResponseMsg](requestMsg: RequestMsg, serializer: Serializer[RequestMsg, ResponseMsg], maxRetry: Int) =
+    underlying.sendRequest(requestMsg, maxRetry)(serializer, serializer)
+
+  def sendRequest[RequestMsg, ResponseMsg](requestMsg: RequestMsg, serializer: Serializer[RequestMsg, ResponseMsg], capability: Long) =
+    underlying.sendRequest(requestMsg, Some(capability))(serializer, serializer)
+
+  def sendRequest[RequestMsg, ResponseMsg](requestMsg: RequestMsg, serializer: Serializer[RequestMsg, ResponseMsg], capability: Long, persistentCapability: Long) =
+    underlying.sendRequest(requestMsg, Some(capability), Some(persistentCapability))(serializer, serializer)
+
+  def sendRequest[RequestMsg, ResponseMsg](requestMsg: RequestMsg, serializer: Serializer[RequestMsg, ResponseMsg], maxRetry: Int, capability: Long) =
+    underlying.sendRequest(requestMsg, maxRetry, Some(capability))(serializer, serializer)
+
+  def sendRequest[RequestMsg, ResponseMsg](requestMsg: RequestMsg, serializer: Serializer[RequestMsg, ResponseMsg], maxRetry: Int, capability: Long, persistentCapability: Long) =
+    underlying.sendRequest(requestMsg, maxRetry, Some(capability), Some(persistentCapability))(serializer, serializer)
+
 }
 
 class NettyPartitionedNetworkClient[PartitionedId](config: NetworkClientConfig, loadBalancerFactory: PartitionedLoadBalancerFactory[PartitionedId],

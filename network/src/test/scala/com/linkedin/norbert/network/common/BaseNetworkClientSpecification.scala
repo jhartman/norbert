@@ -17,12 +17,12 @@ package com.linkedin.norbert
 package network
 package common
 
-import org.specs.Specification
+import org.specs.SpecificationWithJUnit
 import org.specs.mock.Mockito
 import cluster._
 import java.util.concurrent.Future
 
-abstract class BaseNetworkClientSpecification extends Specification with Mockito with SampleMessage {
+abstract class BaseNetworkClientSpecification extends SpecificationWithJUnit with Mockito with SampleMessage {
   val clusterClient = mock[ClusterClient]
   val networkClient: BaseNetworkClient
 

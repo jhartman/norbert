@@ -37,6 +37,7 @@ class NetworkServerConfig {
   var zooKeeperSessionTimeoutMillis = 30000
 
   var requestTimeoutMillis = NetworkDefaults.REQUEST_TIMEOUT_MILLIS
+  var responseGenerationTimeoutMillis = -1//turned off by default
 
   var requestThreadCorePoolSize = NetworkDefaults.REQUEST_THREAD_CORE_POOL_SIZE
   var requestThreadMaxPoolSize = NetworkDefaults.REQUEST_THREAD_MAX_POOL_SIZE
@@ -46,6 +47,8 @@ class NetworkServerConfig {
 
   var requestStatisticsWindow = NetworkDefaults.REQUEST_STATISTICS_WINDOW
   var avoidByteStringCopy = NetworkDefaults.AVOID_BYTESTRING_COPY
+
+  var shutdownPauseMultiplier = NetworkDefaults.SHUTDOWN_PAUSE_MULTIPLIER
 }
 
 class NettyNetworkServer(serverConfig: NetworkServerConfig) extends NetworkServer with ClusterClientComponent with NettyClusterIoServerComponent
@@ -62,7 +65,8 @@ class NettyNetworkServer(serverConfig: NetworkServerConfig) extends NetworkServe
                                                       maxPoolSize = serverConfig.requestThreadMaxPoolSize,
                                                       keepAliveTime = serverConfig.requestThreadKeepAliveTimeSecs,
                                                       maxWaitingQueueSize = serverConfig.threadPoolQueueSize,
-                                                      requestStatisticsWindow = serverConfig.requestStatisticsWindow)
+                                                      requestStatisticsWindow = serverConfig.requestStatisticsWindow,
+                                                      responseGenerationTimeoutMillis = serverConfig.responseGenerationTimeoutMillis)
 
   val executor = Executors.newCachedThreadPool(new NamedPoolThreadFactory("norbert-server-pool-%s".format(clusterClient.serviceName)))
   val bootstrap = new ServerBootstrap(new NioServerSocketChannelFactory(executor, executor))
@@ -111,9 +115,19 @@ class NettyNetworkServer(serverConfig: NetworkServerConfig) extends NetworkServe
     }
   })
 
+  def setRequestTimeoutMillis(newValue : Long) = {
+      messageExecutor.setRequestTimeout(newValue)
+  }
+
   val clusterIoServer = new NettyClusterIoServer(bootstrap, channelGroup)
 
   override def shutdown = {
+    if (serverConfig.shutdownPauseMultiplier > 0)
+    {
+      markUnavailable
+      Thread.sleep(serverConfig.shutdownPauseMultiplier * serverConfig.zooKeeperSessionTimeoutMillis)
+    }
+
     if (serverConfig.clusterClient == null) clusterClient.shutdown else super.shutdown
     //change the sequence so that we do not accept any more connections from clients
     //are existing connections could feed us new norbert messages

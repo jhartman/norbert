@@ -1,6 +1,6 @@
 package com.linkedin.norbert.network.partitioned.loadbalancer
 
-import org.specs.Specification
+import org.specs.SpecificationWithJUnit
 import com.linkedin.norbert.network.common.Endpoint
 import com.linkedin.norbert.cluster.{InvalidClusterException, Node}
 
@@ -20,7 +20,7 @@ import com.linkedin.norbert.cluster.{InvalidClusterException, Node}
  * the License.
  */
 
-class PartitionedConsistentHashedLoadBalancerSpec extends Specification {
+class PartitionedConsistentHashedLoadBalancerSpec extends SpecificationWithJUnit {
   class TestLBF(numPartitions: Int, csr: Boolean = true)
           extends PartitionedConsistentHashedLoadBalancerFactory[Int](numPartitions,
             10,

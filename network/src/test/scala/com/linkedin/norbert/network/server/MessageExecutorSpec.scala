@@ -17,13 +17,13 @@ package com.linkedin.norbert
 package network
 package server
 
-import org.specs.Specification
+import org.specs.SpecificationWithJUnit
 import org.specs.mock.Mockito
 import org.specs.util.WaitFor
 import scala.collection.mutable.MutableList
 import common.SampleMessage
 
-class MessageExecutorSpec extends Specification with Mockito with WaitFor with SampleMessage {
+class MessageExecutorSpec extends SpecificationWithJUnit with Mockito with WaitFor with SampleMessage {
   val messageHandlerRegistry = mock[MessageHandlerRegistry]
   val filter1 = mock[Filter]
   val filter2 = mock[Filter]
@@ -40,7 +40,8 @@ class MessageExecutorSpec extends Specification with Mockito with WaitFor with S
     1,
     1,
     100,
-    1000L)
+    1000L,
+    -1)
 
   var handlerCalled = false
   var either: Either[Exception, Ping] = null

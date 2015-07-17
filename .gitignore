@@ -1,5 +1,14 @@
+bin/
 target/
 lib_managed/
 src_managed/
 project/boot/
 project/plugins/project
+out/
+build/
+.idea/
+.gradle
+*.iml
+*.ipr
+*.iws
+*.swp

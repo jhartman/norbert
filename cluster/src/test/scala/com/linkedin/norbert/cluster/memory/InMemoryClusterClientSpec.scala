@@ -17,9 +17,9 @@ package com.linkedin.norbert
 package cluster
 package memory
 
-import org.specs.Specification
+import org.specs.SpecificationWithJUnit
 
-class InMemoryClusterClientSpec extends Specification {
+class InMemoryClusterClientSpec extends SpecificationWithJUnit {
   val clusterClient = new InMemoryClusterClient("test")
   clusterClient.start
   clusterClient.awaitConnectionUninterruptibly

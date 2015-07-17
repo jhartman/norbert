@@ -2,7 +2,7 @@ package com.linkedin.norbert
 package network
 package netty
 
-import org.specs.Specification
+import org.specs.SpecificationWithJUnit
 import org.specs.mock.Mockito
 import client.ResponseHandler
 import org.jboss.netty.channel._
@@ -10,14 +10,18 @@ import protos.NorbertProtos.NorbertMessage.Status
 import protos.NorbertProtos
 import cluster.Node
 import java.net.{SocketAddress}
-import common.SampleMessage
+import common.{CachedNetworkStatistics, SampleMessage}
+import java.util.UUID
+import norbertutils.MockClock
 
 /**
  * Test to cover association of RequestAccess with remote exception
  */
-class ClientChannelHandlerSpec extends Specification with Mockito with SampleMessage {
+class ClientChannelHandlerSpec extends SpecificationWithJUnit with Mockito with SampleMessage {
 
   val responseHandler = mock[ResponseHandler]
+  val mockClock = new MockClock
+  val statsActor = CachedNetworkStatistics[Node, UUID](mockClock, 1000L, 200L)
   val clientChannelHandler = new ClientChannelHandler(clientName = Some("booClient"),
     serviceName = "booService",
     staleRequestTimeoutMins = 3000,
@@ -26,7 +30,9 @@ class ClientChannelHandlerSpec extends Specification with Mockito with SampleMes
     outlierMultiplier = 2,
     outlierConstant = 2,
     responseHandler = responseHandler,
-    avoidByteStringCopy = true)
+    avoidByteStringCopy = true,
+    stats = statsActor
+  )
 
   def sendMockRequest(ctx: ChannelHandlerContext, request: Request[Ping, Ping]) {
       val writeEvent = mock[MessageEvent]

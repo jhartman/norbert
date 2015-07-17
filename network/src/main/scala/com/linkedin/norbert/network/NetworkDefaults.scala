@@ -100,7 +100,7 @@ object NetworkDefaults {
   /**
    * The default window size/time (in milliseconds) for averaging processing statistics
    */
-  val REQUEST_STATISTICS_WINDOW = 10000L
+  val REQUEST_STATISTICS_WINDOW = 10000000L
 
   /**
    *   Detects nodes that may be offline if their request processing times are greater than this multiplier over the average
@@ -110,7 +110,7 @@ object NetworkDefaults {
   /**
    * Detects nodes that may be offline if their request processing times are also greater than this additional constant
    */
-  val OUTLIER_CONSTANT = 10.0
+  val OUTLIER_CONSTANT = 10000.0
 
   /**
    * Protocol Buffers ByteString.copyFrom(byte[]) and ByteString.toByteArray both make a defensive copy of the
@@ -119,4 +119,14 @@ object NetworkDefaults {
    * if your JMV is running a Security Manager.
    */
   val AVOID_BYTESTRING_COPY = true
+
+  /**
+   * The amount of time to mark as unavailable and pause for when shutting down the server
+   */
+  val SHUTDOWN_PAUSE_MULTIPLIER = 0
+
+  /**
+   * The default timeout for the time between starting iteration and the time we get the last element from iterator.
+   */
+  val DEFAULT_ITERATOR_TIMEOUT:Long = 5000
 }
