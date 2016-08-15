@@ -18,11 +18,11 @@ package network
 package client
 package loadbalancer
 
-import org.specs.Specification
+import org.specs.SpecificationWithJUnit
 import cluster.Node
 import common.Endpoint
 
-class RoundRobinLoadBalancerFactorySpec extends Specification {
+class RoundRobinLoadBalancerFactorySpec extends SpecificationWithJUnit {
   "RoundRobinLoadBalancerFactory" should {
     "create a round robin load balancer" in {
       val nodes = Set(Node(1, "localhost:31310", true), Node(2, "localhost:31311", true), Node(3, "localhost:31312", true),
@@ -98,6 +98,21 @@ class RoundRobinLoadBalancerFactorySpec extends Specification {
         val nodeId = ((i % 2) << 1) | 1
         node must be_==(Node(nodeId, "localhost:3131" + nodeId, true))
       }
+    }
+
+    "give None node on uncapable servers" in {
+      val nodes = for (i <- 0 until 4) yield Node(i, "localhost:3131" + i,  true, Set.empty[Int], Some(i))
+
+      val endpoints = nodes.map(n => new Endpoint {
+        def node = n
+        def canServeRequests = true
+      }).toSet
+
+      val loadBalancerFactory = new RoundRobinLoadBalancerFactory
+      val lb = loadBalancerFactory.newLoadBalancer(endpoints)
+
+      val node = lb.nextNode(Some(0xFF))
+      node must be (None)
     }
   }
 }

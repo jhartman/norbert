@@ -18,11 +18,11 @@ package network
 package partitioned
 package loadbalancer
 
-import org.specs.Specification
+import org.specs.SpecificationWithJUnit
 import cluster.{InvalidClusterException, Node}
 import common.Endpoint
 
-class ConsistentHashPartitionedLoadBalancerFactorySpec extends Specification {
+class ConsistentHashPartitionedLoadBalancerFactorySpec extends SpecificationWithJUnit {
   case class EId(id: Int)
   implicit def eId2ByteArray(eId: EId): Array[Byte] = BigInt(eId.id).toByteArray
 
@@ -186,12 +186,16 @@ class ConsistentHashPartitionedLoadBalancerFactorySpec extends Specification {
       val accessVector = Array(0,0,0,0,0,0)
       (0 to 11).foreach { (i) =>
         val node1 : Node = lb.nextNode(EId(1210), Some(0x1L), Some(2L)).get
-        val node2 : Node = lb.nextNode(EId(1210), Some(0x2L), Some(2L)).get
         if (!node1.eq(None))
           accessVector(node1.id) = accessVector(node1.id) + 1
+      }
+
+      (0 to 11).foreach { (i) =>
+        val node2 : Node = lb.nextNode(EId(1210), Some(0x2L), Some(2L)).get
         if (!node2.eq(None))
           accessVector(node2.id) = accessVector(node2.id) + 1
-      }
+      } 
+      
       accessVector(0) must be_==(accessVector(3))
       accessVector(3) must be_==(accessVector(4))
       accessVector(4) must be_==(accessVector(5))

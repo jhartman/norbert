@@ -16,12 +16,12 @@
 package com.linkedin.norbert
 package logging
 
-import org.specs.Specification
+import org.specs.SpecificationWithJUnit
 import org.apache.log4j
 import log4j.Level._
 import org.specs.mock.Mockito
 
-class LoggerSpec extends Specification with Mockito {
+class LoggerSpec extends SpecificationWithJUnit with Mockito {
   "Logger" should {
     "log the message if debug enabled for debug" in {
       val wrapped = mock[log4j.Logger]

@@ -17,12 +17,18 @@ package com.linkedin.norbert
 package network
 package client
 
+import java.util.UUID
 import java.util.concurrent.Future
 import loadbalancer.{LoadBalancerFactory, LoadBalancer, LoadBalancerFactoryComponent}
 import server.{MessageExecutorComponent, NetworkServer}
 import cluster._
 import network.common._
-import netty.NettyNetworkClient
+import network.client.DarkCanaryResponseHandler
+import com.linkedin.norbert.network.netty.{ClientStatisticsRequestStrategy, ClientChannelHandler, NettyNetworkClient}
+
+object NetworkClientConfig {
+  var defaultIteratorTimeout = NetworkDefaults.DEFAULT_ITERATOR_TIMEOUT;
+}
 
 class NetworkClientConfig {
   var clusterClient: ClusterClient = _
@@ -31,13 +37,14 @@ class NetworkClientConfig {
   var zooKeeperConnectString: String = _
   var zooKeeperSessionTimeoutMillis = ClusterDefaults.ZOOKEEPER_SESSION_TIMEOUT_MILLIS
 
+  var receiveBufferSize:Int = 0
+  var sendBufferSize:Int = 0
   var connectTimeoutMillis = NetworkDefaults.CONNECT_TIMEOUT_MILLIS
   var writeTimeoutMillis = NetworkDefaults.WRITE_TIMEOUT_MILLIS
   var maxConnectionsPerNode = NetworkDefaults.MAX_CONNECTIONS_PER_NODE
 
   var staleRequestTimeoutMins = NetworkDefaults.STALE_REQUEST_TIMEOUT_MINS
   var staleRequestCleanupFrequenceMins = NetworkDefaults.STALE_REQUEST_CLEANUP_FREQUENCY_MINS
-
 
   /**
    * Represents how long a channel stays alive. There are some specifics:
@@ -58,6 +65,12 @@ class NetworkClientConfig {
   var responseHandlerMaxWaitingQueueSize = NetworkDefaults.RESPONSE_THREAD_POOL_QUEUE_SIZE
 
   var avoidByteStringCopy = NetworkDefaults.AVOID_BYTESTRING_COPY
+  var darkCanaryServiceName: Option[String] = None
+  var darkCanaryResponseHandler: Option[DarkCanaryResponseHandler] = None
+  var retryStrategy:Option[RetryStrategy] = None 
+  var duplicatesOk:Boolean = false
+
+  var routingAwayCallback: Option[ClientStatisticsRequestStrategy.RoutingAwayCallback] = None
 }
 
 object NetworkClient {
@@ -128,6 +141,10 @@ trait NetworkClient extends BaseNetworkClient {
   (implicit is: InputSerializer[RequestMsg, ResponseMsg], os: OutputSerializer[RequestMsg, ResponseMsg]): Future[ResponseMsg] =
     sendRequest(request, None, None)
 
+  def sendRequest[RequestMsg, ResponseMsg](request: RequestMsg, maxRetry:Int)
+  (implicit is: InputSerializer[RequestMsg, ResponseMsg], os: OutputSerializer[RequestMsg, ResponseMsg]): Future[ResponseMsg] =
+    sendRequest(request, maxRetry, None, None)
+
   def sendRequest[RequestMsg, ResponseMsg](request: RequestMsg, capability: Option[Long])
   (implicit is: InputSerializer[RequestMsg, ResponseMsg], os: OutputSerializer[RequestMsg, ResponseMsg]): Future[ResponseMsg] = {
     sendRequest(request, capability, None)
@@ -135,8 +152,22 @@ trait NetworkClient extends BaseNetworkClient {
   
   def sendRequest[RequestMsg, ResponseMsg](request: RequestMsg, capability: Option[Long], persistentCapability: Option[Long])
   (implicit is: InputSerializer[RequestMsg, ResponseMsg], os: OutputSerializer[RequestMsg, ResponseMsg]): Future[ResponseMsg] = {
-    val future = new FutureAdapter[ResponseMsg]
+    val future = new FutureAdapterListener[ResponseMsg]
     sendRequest(request, future, capability, persistentCapability)
+    future
+  }
+
+  def sendRequest[RequestMsg, ResponseMsg](request: RequestMsg, maxRetry: Int, capability: Option[Long])
+  (implicit is: InputSerializer[RequestMsg, ResponseMsg], os: OutputSerializer[RequestMsg, ResponseMsg]): Future[ResponseMsg] = {
+    val future = new FutureAdapterListener[ResponseMsg]
+    sendRequest(request, future, maxRetry, capability, None)
+    future
+  }
+
+  def sendRequest[RequestMsg, ResponseMsg](request: RequestMsg, maxRetry: Int, capability: Option[Long], persistentCapability: Option[Long])
+  (implicit is: InputSerializer[RequestMsg, ResponseMsg], os: OutputSerializer[RequestMsg, ResponseMsg]): Future[ResponseMsg] = {
+    val future = new FutureAdapterListener[ResponseMsg]
+    sendRequest(request, future, maxRetry, capability, persistentCapability)
     future
   }
 

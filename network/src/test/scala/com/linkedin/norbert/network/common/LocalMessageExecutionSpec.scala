@@ -17,7 +17,7 @@ package com.linkedin.norbert
 package network
 package common
 
-import org.specs.Specification
+import org.specs.SpecificationWithJUnit
 import org.specs.mock.Mockito
 import client.NetworkClient
 import client.loadbalancer.{LoadBalancerFactory, LoadBalancer, LoadBalancerFactoryComponent}
@@ -26,7 +26,7 @@ import cluster.{Node, ClusterClientComponent, ClusterClient}
 import com.google.protobuf.Message
 import scala.collection.mutable.MutableList
 
-class LocalMessageExecutionSpec extends Specification with Mockito with SampleMessage {
+class LocalMessageExecutionSpec extends SpecificationWithJUnit with Mockito with SampleMessage {
   val clusterClient = mock[ClusterClient]
 
   val messageExecutor = new MessageExecutor {

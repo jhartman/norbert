@@ -35,6 +35,12 @@ import util.ProtoUtils
 
 case class RequestContext(requestId: UUID, receivedAt: Long = System.currentTimeMillis) extends NorbertRequestContext
 
+object TimingKeys {
+  final val ON_MESSAGE_TIME_ATTR = "onMessage_millis_time"
+  final val ON_REQUEST_TIME_ATTR = "onRequest_millis_time"
+  final val ON_RESPONSE_TIME_ATTR = "onResponse_millis_time"
+}
+
 @ChannelPipelineCoverage("all")
 class RequestContextDecoder extends OneToOneDecoder {
   def decode(ctx: ChannelHandlerContext, channel: Channel, msg: Any) = {
@@ -65,6 +71,7 @@ class ServerFilterChannelHandler(messageExecutor: MessageExecutor) extends Simpl
   override def handleUpstream(ctx: ChannelHandlerContext, e: ChannelEvent) {
     if (e.isInstanceOf[MessageEvent]) {
       val (context, norbertMessage) = e.asInstanceOf[MessageEvent].getMessage.asInstanceOf[(RequestContext, NorbertProtos.NorbertMessage)]
+      context.attributes += (TimingKeys.ON_MESSAGE_TIME_ATTR -> System.currentTimeMillis)
       messageExecutor.filters.foreach { filter =>
         filter match {
           case f : NettyServerFilter => continueOnError(f.onMessage(norbertMessage, context))
@@ -116,7 +123,7 @@ class ServerChannelHandler(clientName: Option[String],
     val messageName = norbertMessage.getMessageName
     val requestBytes = ProtoUtils.byteStringToByteArray(norbertMessage.getMessage, avoidByteStringCopy)
 
-    statsActor.beginRequest(0, context.requestId)
+    statsActor.beginRequest(0, context.requestId, 0)
 
     val (handler, is, os) = try {
       val handler: Any => Any = messageHandlerRegistry.handlerFor(messageName)
@@ -143,6 +150,11 @@ class ServerChannelHandler(clientName: Option[String],
       case ex: HeavyLoadException =>
         Channels.write(ctx, Channels.future(channel), (context, ResponseHelper.errorResponse(context.requestId, ex, NorbertProtos.NorbertMessage.Status.HEAVYLOAD)))
         statsActor.endRequest(0, context.requestId)
+
+      case ex: GcException =>
+        Channels.write(ctx, Channels.future(channel), (context, ResponseHelper.errorResponse(context.requestId, ex, NorbertProtos.NorbertMessage.Status.GC)))
+        statsActor.endRequest(0, context.requestId)
+
     }
   }
 
@@ -187,24 +199,53 @@ trait NetworkServerStatisticsMBean {
   def getMedianTime: Double
   def get90PercentileTime: Double
   def get99PercentileTime: Double
+
+
+  def getAverageResponseProcessingTime: Double
+  def getMedianResponseTime: Double
+  def get90PercentileResponseTime: Double
+  def get99PercentileResponseTime: Double
 }
 
 class NetworkServerStatisticsMBeanImpl(clientName: Option[String], serviceName: String, val stats: CachedNetworkStatistics[Int, UUID])
   extends MBean(classOf[NetworkServerStatisticsMBean], JMX.name(clientName, serviceName)) with NetworkServerStatisticsMBean {
 
-  def getMedianTime = stats.getStatistics(0.5).map(_.finished.values.map(_.percentile)).flatten.sum
+  def toMillis(statsMetric: Double):Double = {statsMetric/1000} 
 
-  def getRequestsPerSecond = stats.getStatistics(0.5).map(_.rps().values).flatten.sum
+  def getMedianTime = toMillis(stats.getStatistics(0.5).map(_.finished.values.map(_.percentile).sum).getOrElse(0.0))
+
+  def getRequestsPerSecond = stats.getStatistics(0.5).map(_.rps().values.sum).getOrElse(0)
 
   def getAverageRequestProcessingTime = stats.getStatistics(0.5).map { stats =>
     val total = stats.finished.values.map(_.total).sum
     val size = stats.finished.values.map(_.size).sum
 
+    toMillis(safeDivide(total.toDouble, size)(0.0))
+  } getOrElse(0.0)
+
+  def get90PercentileTime = toMillis(stats.getStatistics(0.90).map(_.finished.values.map(_.percentile).sum).getOrElse(0.0))
+
+  def get99PercentileTime = toMillis(stats.getStatistics(0.99).map(_.finished.values.map(_.percentile).sum).getOrElse(0.0))
+
+  //the following statistics are in microseconds not milliseconds
+  def getAverageResponseProcessingTime = stats.getStatistics(0.5).map { stats =>
+    val total = stats.finishedResponse.values.map(_.total).sum
+    val size = stats.finishedResponse.values.map(_.size).sum
+
     safeDivide(total.toDouble, size)(0.0)
   } getOrElse(0.0)
 
-  def get90PercentileTime = stats.getStatistics(0.90).map(_.finished.values.map(_.percentile)).flatten.sum
+  def getMedianResponseTime = stats.getStatistics(0.5).map(_.finishedResponse.values.map(_.percentile).sum).getOrElse(0.0)
 
-  def get99PercentileTime = stats.getStatistics(0.99).map(_.finished.values.map(_.percentile)).flatten.sum 
+  def get90PercentileResponseTime = stats.getStatistics(0.90).map(_.finishedResponse.values.map(_.percentile).sum).getOrElse(0.0)
+
+  def get99PercentileResponseTime = stats.getStatistics(0.99).map(_.finishedResponse.values.map(_.percentile).sum).getOrElse(0.0)
+
+  def getAverageQueueTime = stats.getStatistics(0.5).map { stats =>
+    val total = stats.finishedQueueTime.values.map(_.total).sum
+    val size = stats.finishedQueueTime.values.map(_.size).sum
+
+    safeDivide(total.toDouble, size)(0.0)
+  } getOrElse (0.0)
 }
 

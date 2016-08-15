@@ -3,7 +3,7 @@ package network
 package partitioned
 package loadbalancer
 
-import org.specs.Specification
+import org.specs.SpecificationWithJUnit
 import cluster.{InvalidClusterException, Node}
 import common.Endpoint
 
@@ -12,12 +12,12 @@ import com.linkedin.norbert.network.common.Endpoint
 
 
 /**
- * @auther: rwang
+ * @author: rwang
  * @date: 10/11/12
  * @version: $Revision$
  */
 
-class TestSetCoverPartitionedLoadBalancer extends Specification {
+class TestSetCoverPartitionedLoadBalancer extends SpecificationWithJUnit {
   class TestLBF(numPartitions: Int, csr: Boolean = true)
         extends DefaultPartitionedLoadBalancerFactory[Int](numPartitions,csr)
   {

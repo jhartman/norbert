@@ -42,4 +42,14 @@ case class JavaNode(@BeanProperty id: Int, @BeanProperty url: String, @BeanPrope
       case (nc, Some(pc)) => (pc & pc.longValue()) == pc.longValue()
       case (None, None) => c.longValue == 0L && pc.longValue() == 0L
     }
+  def getCapability() : java.lang.Long = 
+    capability match {
+      case Some(nc) => nc.longValue
+      case None => null
+    }
+  def getPersistentCapability() : java.lang.Long = 
+    persistentCapability match {
+      case Some(nc) => nc.longValue
+      case None => null
+    }
 }

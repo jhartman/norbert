@@ -37,4 +37,11 @@ public interface NetworkClient extends BaseNetworkClient {
    * @throws ClusterDisconnectedException thrown if the cluster is not connected when the method is called
    */
   <RequestMsg, ResponseMsg> Future<ResponseMsg> sendRequest(RequestMsg request, Serializer<RequestMsg, ResponseMsg> serializer) throws InvalidClusterException, NoNodesAvailableException, ClusterDisconnectedException;
+  <RequestMsg, ResponseMsg> Future<ResponseMsg> sendRequest(RequestMsg request, Serializer<RequestMsg, ResponseMsg> serializer, int maxRetry) throws InvalidClusterException, NoNodesAvailableException, ClusterDisconnectedException;
+
+  <RequestMsg, ResponseMsg> Future<ResponseMsg> sendRequest(RequestMsg request, Serializer<RequestMsg, ResponseMsg> serializer, long capability) throws InvalidClusterException, NoNodesAvailableException, ClusterDisconnectedException;
+  <RequestMsg, ResponseMsg> Future<ResponseMsg> sendRequest(RequestMsg request, Serializer<RequestMsg, ResponseMsg> serializer, long capability, long persistentCapability) throws InvalidClusterException, NoNodesAvailableException, ClusterDisconnectedException;
+
+  <RequestMsg, ResponseMsg> Future<ResponseMsg> sendRequest(RequestMsg request, Serializer<RequestMsg, ResponseMsg> serializer, int maxRetry, long capability) throws InvalidClusterException, NoNodesAvailableException, ClusterDisconnectedException;
+  <RequestMsg, ResponseMsg> Future<ResponseMsg> sendRequest(RequestMsg request, Serializer<RequestMsg, ResponseMsg> serializer, int maxRetry, long capability, long persistentCapability) throws InvalidClusterException, NoNodesAvailableException, ClusterDisconnectedException;
 }

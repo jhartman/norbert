@@ -1,0 +1,10 @@
+apply plugin: 'java'
+apply plugin: 'scala'
+
+dependencies {
+  compile project(":network$scalaSuffix")
+  compile project(":java-cluster$scalaSuffix")
+
+  compile externalDependency.scalaLibrary
+}
+
