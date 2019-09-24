@@ -3,12 +3,12 @@ package com.linkedin.norbert.network.partitioned.loadbalancer
 import com.linkedin.norbert.network.common.Endpoint
 import java.util.TreeMap
 import com.linkedin.norbert.cluster.{Node, InvalidClusterException}
-import com.linkedin.norbert.logging.Logging
-import com.linkedin.norbert.network.client.loadbalancer.LoadBalancerHelpers
-import java.util.concurrent.atomic.{AtomicBoolean, AtomicInteger}
+import java.util.concurrent.atomic.AtomicBoolean
+
+import com.linkedin.norbert.network.util.ConcurrentCyclicCounter
 
 /*
-* Copyright 2009-2010 LinkedIn, Inc
+* Copyright 2009-2015 LinkedIn, Inc
 *
 * Licensed under the Apache License, Version 2.0 (the "License"); you may not
 * use this file except in compliance with the License. You may obtain a copy of
@@ -73,13 +73,13 @@ class PartitionedConsistentHashedLoadBalancerFactory[PartitionedId](numPartition
       (partition, wheel)
     }
 
-    val nPartitions = if(this.numPartitions == -1) endpoints.flatMap(_.node.partitionIds).size else numPartitions
+    val nPartitions = if (this.numPartitions == -1) endpoints.flatMap(_.node.partitionIds).size else numPartitions
     new PartitionedConsistentHashedLoadBalancer(nPartitions, wheels, hashFn, serveRequestsIfPartitionMissing)
   }
 }
 
 class PartitionedConsistentHashedLoadBalancer[PartitionedId](numPartitions: Int, wheels: Map[Int, TreeMap[Int, Endpoint]], hashFn: PartitionedId => Int, serveRequestsIfPartitionMissing: Boolean = true)
-        extends PartitionedLoadBalancer[PartitionedId] with DefaultLoadBalancerHelper {
+        extends PartitionedLoadBalancer[PartitionedId] with DefaultPartitionedLoadBalancerHelper {
   import scala.collection.JavaConversions._
   val endpoints = wheels.values.flatMap(_.values).toSet
   val partitionToNodeMap = generatePartitionToNodeMap(endpoints, numPartitions, serveRequestsIfPartitionMissing)
@@ -98,7 +98,7 @@ class PartitionedConsistentHashedLoadBalancer[PartitionedId](numPartitions: Int,
   def nodesForPartitions(id: PartitionedId, partitions: Set[Int], capability: Option[Long] = None, persistentCapability: Option[Long] = None) = {
     nodesForPartitions(id, wheels.filterKeys(partitions contains _), capability, persistentCapability)
   }
-  
+
   private def nodesForPartitions(id: PartitionedId, wheels: Map[Int, TreeMap[Int, Endpoint]], capability: Option[Long], persistentCapability: Option[Long]) = {
     if (id == null) {
       nodesForPartitions0(partitionToNodeMap filterKeys wheels.containsKey, capability, persistentCapability)
@@ -108,11 +108,11 @@ class PartitionedConsistentHashedLoadBalancer[PartitionedId](numPartitions: Int,
       wheels.foldLeft(Map.empty[Node, Set[Int]]) { case (accumulator, (partitionId, wheel)) =>
         val endpoint = PartitionUtil.searchWheel(wheel, hash, (e: Endpoint) => e.canServeRequests && e.node.isCapableOf(capability, persistentCapability) )
 
-        if(endpoint.isDefined) {
+        if (endpoint.isDefined) {
           val node = endpoint.get.node
           val partitions = accumulator.getOrElse(node, Set.empty[Int]) + partitionId
           accumulator + (node -> partitions)
-        } else if(serveRequestsIfPartitionMissing) {
+        } else if (serveRequestsIfPartitionMissing) {
 
           log.warn("All nodes appear to be unresponsive for partition %s, selecting the original node."
             .format(partitionId))
@@ -126,22 +126,22 @@ class PartitionedConsistentHashedLoadBalancer[PartitionedId](numPartitions: Int,
             throw new InvalidClusterException("Partition %s is unavailable, cannot serve requests.".format(partitionId))
       }
     }
-  }  
-  
-  private def nodesForPartitions0(partitionToNodeMap: Map[Int, (IndexedSeq[Endpoint], AtomicInteger, Array[AtomicBoolean])], capability: Option[Long], persistentCapability: Option[Long] = None) = {
+  }
+
+  private def nodesForPartitions0(partitionToNodeMap: Map[Int, (IndexedSeq[Endpoint], ConcurrentCyclicCounter, Array[AtomicBoolean])], capability: Option[Long], persistentCapability: Option[Long] = None) = {
     partitionToNodeMap.keys.foldLeft(Map.empty[Node, Set[Int]]) { (map, partition) =>
       val nodeOption = nodeForPartition(partition, capability, persistentCapability)
-      if(nodeOption isDefined) {
+      if (nodeOption isDefined) {
         val n = nodeOption.get
         map + (n -> (map.getOrElse(n, Set.empty[Int]) + partition))
-      } else if(serveRequestsIfPartitionMissing) {
+      } else if (serveRequestsIfPartitionMissing) {
         log.warn("Partition %s is unavailable, attempting to continue serving requests to other partitions.".format(partition))
         map
       } else
         throw new InvalidClusterException("Partition %s is unavailable, cannot serve requests.".format(partition))
     }
   }
-  
+
 
   def nextNode(id: PartitionedId, capability: Option[Long] = None, persistentCapability: Option[Long] = None): Option[Node] = {
     val hash = hashFn(id)

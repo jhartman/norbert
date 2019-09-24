@@ -26,12 +26,13 @@ import java.util.concurrent.Executors
 import partitioned.loadbalancer.{PartitionedLoadBalancerFactoryComponent, PartitionedLoadBalancerFactory}
 import partitioned.PartitionedNetworkClient
 import client.loadbalancer.{LoadBalancerFactoryComponent, LoadBalancerFactory}
-import cluster.{ClusterClient, ClusterClientComponent}
+import com.linkedin.norbert.cluster.{Node, ClusterClient, ClusterClientComponent}
 import protos.NorbertProtos
 import org.jboss.netty.channel.{ChannelPipelineFactory, Channels}
-import client.{ThreadPoolResponseHandler, ResponseHandlerComponent, NetworkClient, NetworkClientConfig, NetworkClientComponent}
-import common.{CompositeCanServeRequestStrategy, SimpleBackoffStrategy, BaseNetworkClient}
-import java.util.{Map => JMap}
+import client.{ThreadPoolResponseHandler, ResponseHandlerComponent, NetworkClient, NetworkClientConfig}
+import com.linkedin.norbert.network.common.{CachedNetworkStatistics, CompositeCanServeRequestStrategy, SimpleBackoffStrategy, BaseNetworkClient}
+import com.linkedin.norbert.network.common.{AlwaysAvailableRequestStrategy}
+import java.util.{Map => JMap, UUID}
 import jmx.JMX
 import jmx.JMX.MBean
 import norbertutils._
@@ -43,6 +44,8 @@ abstract class BaseNettyNetworkClient(clientConfig: NetworkClientConfig) extends
   private val executor = Executors.newCachedThreadPool(new NamedPoolThreadFactory("norbert-client-pool-%s".format(clusterClient.serviceName)))
   private val bootstrap = new ClientBootstrap(new NioClientSocketChannelFactory(executor, executor))
   private val connectTimeoutMillis = clientConfig.connectTimeoutMillis
+  private val receiveBufferSize = clientConfig.receiveBufferSize
+  private val sendBufferSize = clientConfig.sendBufferSize
 
   val responseHandler = new ThreadPoolResponseHandler(
     clientName = clusterClient.clientName,
@@ -53,6 +56,8 @@ abstract class BaseNettyNetworkClient(clientConfig: NetworkClientConfig) extends
     maxWaitingQueueSize = clientConfig.responseHandlerMaxWaitingQueueSize,
     avoidByteStringCopy = clientConfig.avoidByteStringCopy)
 
+  private val stats = CachedNetworkStatistics[Node, UUID](SystemClock, clientConfig.requestStatisticsWindow, 200L)
+
   private val handler = new ClientChannelHandler(
     clientName = clusterClient.clientName,
     serviceName = clusterClient.serviceName,
@@ -62,15 +67,28 @@ abstract class BaseNettyNetworkClient(clientConfig: NetworkClientConfig) extends
     outlierMultiplier = clientConfig.outlierMuliplier,
     outlierConstant = clientConfig.outlierConstant,
     responseHandler = responseHandler,
-    avoidByteStringCopy = clientConfig.avoidByteStringCopy)
+    avoidByteStringCopy = clientConfig.avoidByteStringCopy,
+    stats = stats,
+    routeAway = clientConfig.routingAwayCallback,
+    enableReroutingStrategies = clientConfig.enableReroutingStrategies)
+
+  private val darkCanaryHandler = new DarkCanaryChannelHandler()
 
   // TODO why isn't clientConfig visible here?
   bootstrap.setOption("connectTimeoutMillis", connectTimeoutMillis)
   bootstrap.setOption("tcpNoDelay", true)
   bootstrap.setOption("reuseAddress", true)
+  if (receiveBufferSize > 0) {
+    bootstrap.setOption("receiveBufferSize", receiveBufferSize)
+  }
+  if (sendBufferSize > 0) {
+    bootstrap.setOption("sendBufferSize", sendBufferSize)
+  }
   bootstrap.setPipelineFactory(new ChannelPipelineFactory {
     private val loggingHandler = new LoggingHandler
     private val protobufDecoder = new ProtobufDecoder(NorbertProtos.NorbertMessage.getDefaultInstance)
+    private val darkCanaryDownstreamHandler = new darkCanaryHandler.DownStreamHandler()
+    private val darkCanaryUpstreamHandler = new darkCanaryHandler.UpstreamHandler()
     private val frameEncoder = new LengthFieldPrepender(4)
     private val protobufEncoder = new ProtobufEncoder
 
@@ -85,7 +103,22 @@ abstract class BaseNettyNetworkClient(clientConfig: NetworkClientConfig) extends
       p.addLast("frameEncoder", frameEncoder)
       p.addLast("protobufEncoder", protobufEncoder)
 
+      clientConfig.darkCanaryServiceName match {
+        case Some(serviceName) => p.addLast("darkCanaryUpstreamHandler", darkCanaryUpstreamHandler)
+        case None =>  // Do nothing. We register dark canary handlers only if a dark canary service name is specified.
+      }
+
       p.addLast("requestHandler", handler)
+
+      clientConfig.darkCanaryServiceName match {
+        case Some(serviceName) => p.addLast("darkDownstreamCanaryHandler", darkCanaryDownstreamHandler)
+        case None =>  // Do nothing. We register dark canary handlers only if a dark canary service name is specified.
+      }
+
+      clientConfig.clientSslChannelHandler match {
+        case Some(clientSslChannelHandlero) => p.addFirst("clientSslChannelHandler", clientSslChannelHandlero)
+        case None =>
+      }
 
       p
     }
@@ -106,7 +139,10 @@ abstract class BaseNettyNetworkClient(clientConfig: NetworkClientConfig) extends
     def getNumNodesDown = endpoints.filter(e => !e.canServeRequests).size
   })
 
-  val channelPoolStrategy = new SimpleBackoffStrategy(SystemClock)
+  // channelPoolStrategy is to check error when opening a channel to a node.
+  // Therefore, we should always enable Norbert Rerouting if there is an error opening a channel.
+  // enableReroutingStrategies = true
+  val channelPoolStrategy = new SimpleBackoffStrategy(SystemClock, true)
   val clientChannelStrategy = handler.strategy // TODO: Carefully consider making this strategy a constructor for the ClientChannelHandler
 
   val strategy = CompositeCanServeRequestStrategy(channelPoolStrategy, clientChannelStrategy)
@@ -116,9 +152,17 @@ abstract class BaseNettyNetworkClient(clientConfig: NetworkClientConfig) extends
     writeTimeoutMillis = clientConfig.writeTimeoutMillis,
     bootstrap = bootstrap,
     closeChannelTimeMillis = clientConfig.closeChannelTimeMillis,
-    errorStrategy = Some(channelPoolStrategy))
+    staleRequestTimeoutMins = clientConfig.staleRequestTimeoutMins + 1,
+    staleRequestCleanupFreqMins = clientConfig.staleRequestCleanupFrequenceMins,
+    errorStrategy = Some(channelPoolStrategy),
+    stats = stats)
 
   val clusterIoClient = new NettyClusterIoClient(channelPoolFactory, strategy)
+  clientConfig.darkCanaryServiceName match {
+    case Some(serviceName) => darkCanaryHandler.initialize(clientConfig, clusterIoClient, strategy)
+    case None => // Do nothing. We initialize dark canaries only if a dark canary service name is specified.
+  }
+
 
   override def shutdown = {
     if (clientConfig.clusterClient == null) clusterClient.shutdown else super.shutdown
@@ -130,4 +174,6 @@ abstract class BaseNettyNetworkClient(clientConfig: NetworkClientConfig) extends
 class NettyNetworkClient(clientConfig: NetworkClientConfig, val loadBalancerFactory: LoadBalancerFactory) extends BaseNettyNetworkClient(clientConfig) with NetworkClient with LoadBalancerFactoryComponent
 
 class NettyPartitionedNetworkClient[PartitionedId](clientConfig: NetworkClientConfig, val loadBalancerFactory: PartitionedLoadBalancerFactory[PartitionedId]) extends BaseNettyNetworkClient(clientConfig)
-    with PartitionedNetworkClient[PartitionedId] with PartitionedLoadBalancerFactoryComponent[PartitionedId]
+    with PartitionedNetworkClient[PartitionedId] with PartitionedLoadBalancerFactoryComponent[PartitionedId] {
+  setConfig(clientConfig)
+}

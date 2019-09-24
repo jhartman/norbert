@@ -31,7 +31,7 @@ import client.NetworkClientConfig
 import common._
 import norbertutils._
 import network.client.ResponseHandler
-import norbertutils.{Clock, SystemClock, SystemClockComponent}
+import norbertutils.{Clock, SystemClock}
 import java.util.{Map => JMap}
 import java.util.concurrent.atomic.{AtomicInteger, AtomicLong}
 import util.ProtoUtils
@@ -45,7 +45,12 @@ class ClientChannelHandler(clientName: Option[String],
                            outlierMultiplier: Double,
                            outlierConstant: Double,
                            responseHandler: ResponseHandler,
-                           avoidByteStringCopy: Boolean) extends SimpleChannelHandler with Logging {
+                           avoidByteStringCopy: Boolean,
+                           stats : CachedNetworkStatistics[Node, UUID],
+                           routeAway: Option[ClientStatisticsRequestStrategy.RoutingAwayCallback] = None,
+                           enableReroutingStrategies: Boolean = true)
+    extends SimpleChannelHandler with Logging {
+
   private val requestMap = new ConcurrentHashMap[UUID, Request[_, _]]
 
   val cleanupTask = new Runnable() {
@@ -68,8 +73,9 @@ class ClientChannelHandler(clientName: Option[String],
              }
           }
         }
-
-        log.info("Expired %d stale entries from the request map".format(expiredEntryCount))
+        if (expiredEntryCount > 0) {
+          log.info("Expired %d stale entries from the request map".format(expiredEntryCount))
+        }
       } catch {
         case e: InterruptedException =>
           Thread.currentThread.interrupt
@@ -83,26 +89,22 @@ class ClientChannelHandler(clientName: Option[String],
 
   val cleanupExecutor = new ScheduledThreadPoolExecutor(1)
   cleanupExecutor.scheduleAtFixedRate(cleanupTask, staleRequestCleanupFrequencyMins, staleRequestCleanupFrequencyMins, TimeUnit.MINUTES)
-
-  private val stats = CachedNetworkStatistics[Node, UUID](clock, requestStatisticsWindow, 200L)
-
-  val clientStatsStrategy = new ClientStatisticsRequestStrategy(stats, outlierMultiplier, outlierConstant, clock)
-  val serverErrorStrategy = new SimpleBackoffStrategy(clock)
+  val clientStatsStrategy = new ClientStatisticsRequestStrategy(stats, outlierMultiplier, outlierConstant, clock, routeAway, enableReroutingStrategies)
+  val serverErrorStrategy = new SimpleBackoffStrategy(clock, enableReroutingStrategies)
 
   val clientStatsStrategyJMX = JMX.register(new ClientStatisticsRequestStrategyMBeanImpl(clientName, serviceName, clientStatsStrategy))
   val serverErrorStrategyJMX = JMX.register(new ServerErrorStrategyMBeanImpl(clientName, serviceName, serverErrorStrategy))
 
   val strategy = CompositeCanServeRequestStrategy(clientStatsStrategy, serverErrorStrategy)
 
-  private val statsJMX = JMX.register(new NetworkClientStatisticsMBeanImpl(clientName, serviceName, stats))
+  private val statsJMX = JMX.register(new NetworkClientStatisticsMBeanImpl(clientName, serviceName, stats, clientStatsStrategy))
 
   override def writeRequested(ctx: ChannelHandlerContext, e: MessageEvent) = {
     val request = e.getMessage.asInstanceOf[Request[_, _]]
     log.debug("Writing request: %s".format(request))
-
-    if(!request.callback.isEmpty) {
+    if (!request.callback.isEmpty) {
       requestMap.put(request.id, request)
-      stats.beginRequest(request.node, request.id)
+      stats.beginRequest(request.node, request.id, 0)
     }
 
     val message = NorbertProtos.NorbertMessage.newBuilder
@@ -113,6 +115,7 @@ class ClientChannelHandler(clientName: Option[String],
       message.addHeader(NorbertProtos.NorbertMessage.Header.newBuilder.setKey(header._1).setValue(header._2).build)
     }
     message.setMessage(ProtoUtils.byteArrayToByteString(request.requestBytes, avoidByteStringCopy))
+    stats.increaseNumRequestBytes(request.requestBytes.length)
     super.writeRequested(ctx, new DownstreamMessageEvent(e.getChannel, e.getFuture, message.build, e.getRemoteAddress))
   }
 
@@ -122,17 +125,21 @@ class ClientChannelHandler(clientName: Option[String],
     val requestId = new UUID(message.getRequestIdMsb, message.getRequestIdLsb)
 
     requestMap.get(requestId) match {
-      case null => log.warn("Received a response message [%s] without a corresponding request".format(message))
+      case null => {
+        log.warn("Received a response message UUID: [%s] without a corresponding request from %s".format(requestId, ctx.getChannel().getRemoteAddress()))
+      }
       case request =>
         requestMap.remove(requestId)
-
         stats.endRequest(request.node, request.id)
-
+        stats.increaseNumResponseBytes(message.getMessage.size())
         if (message.getStatus == NorbertProtos.NorbertMessage.Status.OK) {
           responseHandler.onSuccess(request, message)
         } else if (message.getStatus == NorbertProtos.NorbertMessage.Status.HEAVYLOAD) {
           serverErrorStrategy.notifyFailure(request.node)
           processException(request, "Heavy load")
+        } else if (message.getStatus == NorbertProtos.NorbertMessage.Status.GC) {
+          //Don't notify backoff strategy for GC failures
+          processException(request, "GC")
         } else {
           processException(request, Option(message.getErrorMessage).getOrElse("<null>"))
         }
@@ -145,7 +152,14 @@ class ClientChannelHandler(clientName: Option[String],
     }
   }
 
-  override def exceptionCaught(ctx: ChannelHandlerContext, e: ExceptionEvent) = log.warn(e.getCause, "Caught exception in network layer")
+  override def exceptionCaught(ctx: ChannelHandlerContext, e: ExceptionEvent) = {
+    e.getCause match {
+      case _:ConnectTimeoutException =>
+        log.warn("Caught connect timeout in network layer")
+      case cause =>
+        log.warn(cause, "Caught exception in network layer")
+    }
+  }
 
   def shutdown: Unit = {
     responseHandler.shutdown
@@ -166,7 +180,7 @@ trait HealthScoreCalculator extends Logging {
 
     val result = safeDivide(fTotal + pTotal, fSize + pSize)(0)
 
-    if(result < 0.0) {
+    if (result < 0.0) {
       log.warn("Found a negative result when calculating weighted median. Pending = %s. Finished = %s. fSize = %s. pSize = %s. fTotal = %s. pTotal = %s"
                 .format(p, f, fSize, pSize, fTotal, pTotal))
     }
@@ -183,27 +197,44 @@ trait HealthScoreCalculator extends Logging {
 class ClientStatisticsRequestStrategy(val stats: CachedNetworkStatistics[Node, UUID],
                                       @volatile var outlierMultiplier: Double,
                                       @volatile var outlierConstant: Double,
-                                      clock: Clock)
+                                      clock: Clock,
+                                      routeAway: Option[ClientStatisticsRequestStrategy.RoutingAwayCallback] = None,
+                                      @volatile var enableReroutingStrategies: Boolean = true)
   extends CanServeRequestStrategy with Logging with HealthScoreCalculator {
   // Must be more than outlierMultiplier * average + outlierConstant ms the others by default
 
-  val totalNodesMarkedDown = new AtomicInteger(0)
+  val totalNodesMarkedDown = new AtomicLong(0)
+  val totalNumReroutes = new AtomicLong(0)
 
   val canServeRequests = CacheMaintainer(clock, 200L, () => {
     val s = stats.getStatistics(0.5)
     val (p, f) = (s.map(_.pending).getOrElse(Map.empty), s.map(_.finished).getOrElse(Map.empty))
-
     val clusterMedian = doCalculation(p, f)
 
     f.map { case (n, nodeN) =>
-      val nodeP = p.get(n).getOrElse(StatsEntry(0.0, 0, 0))
+      val available = if (!enableReroutingStrategies) {
+        !enableReroutingStrategies
+        } else {
+        val nodeP = p.get(n).getOrElse(StatsEntry(0.0, 0, 0))
 
-      val nodeMedian = doCalculation(Map(0 -> nodeP),Map(0 -> nodeN))
-      val available = nodeMedian <= clusterMedian * outlierMultiplier + outlierConstant
+        val nodeMedian = doCalculation(Map(0 -> nodeP),Map(0 -> nodeN))
+        val available_helper = nodeMedian <= clusterMedian * outlierMultiplier + outlierConstant
 
-      if(!available) {
-        log.warn("Node %s has a median response time of %f. The cluster response time is %f. Routing requests away temporarily.".format(n, nodeMedian, clusterMedian))
-        totalNodesMarkedDown.incrementAndGet
+        if (!available_helper) {
+          routeAway match {
+            case Some(callback) =>
+              try {
+                callback(n, nodeMedian, clusterMedian)
+              } catch {
+                case ex: Exception =>
+                  log.error(ex, "Error when executing routing away callback")
+              }
+            case None =>
+              log.info("Node %s has a median response time of %f. The cluster response time is %f. Routing requests away temporarily.".format(n, nodeMedian, clusterMedian))
+          }
+          totalNodesMarkedDown.incrementAndGet
+        }
+        available_helper
       }
       (n, available)
     }
@@ -211,8 +242,18 @@ class ClientStatisticsRequestStrategy(val stats: CachedNetworkStatistics[Node, U
 
   def canServeRequest(node: Node) = {
     val map = canServeRequests.get
-    map.flatMap(_.get(node)).getOrElse(true)
+    val canServe = map.flatMap(_.get(node)).getOrElse(true)
+    if (!canServe) {
+      totalNumReroutes.incrementAndGet
+    }
+    canServe
   }
+}
+
+object ClientStatisticsRequestStrategy extends Logging {
+
+  /* receiver node, receiver median, cluster median */
+  type RoutingAwayCallback = (Node, Double, Double) => Unit
 }
 
 trait ClientStatisticsRequestStrategyMBean extends CanServeRequestStrategyMBean {
@@ -222,7 +263,8 @@ trait ClientStatisticsRequestStrategyMBean extends CanServeRequestStrategyMBean 
   def setOutlierMultiplier(m: Double)
   def setOutlierConstant(c: Double)
 
-  def getTotalNodesMarkedDown: Int
+  def getTotalNodesMarkedDown: Long
+  def getEnableReroutingStrategies: Boolean
 }
 
 class ClientStatisticsRequestStrategyMBeanImpl(clientName: Option[String], serviceName: String, strategy: ClientStatisticsRequestStrategy)
@@ -235,9 +277,13 @@ class ClientStatisticsRequestStrategyMBeanImpl(clientName: Option[String], servi
 
   def getOutlierConstant = strategy.outlierConstant
 
+  def getEnableReroutingStrategies = strategy.enableReroutingStrategies
+
   def setOutlierMultiplier(m: Double) { strategy.outlierMultiplier = m}
 
   def setOutlierConstant(c: Double) = { strategy.outlierConstant = c}
+
+  def setEnableReroutingStrategies(enableRouting: Boolean) = {strategy.enableReroutingStrategies = enableRouting}
 
   def getTotalNodesMarkedDown = strategy.totalNodesMarkedDown.get.abs
 }

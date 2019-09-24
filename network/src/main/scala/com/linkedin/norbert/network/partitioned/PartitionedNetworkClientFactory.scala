@@ -1,5 +1,5 @@
 /*
- * Copyright 2009-2010 LinkedIn, Inc
+ * Copyright 2009-2015 LinkedIn, Inc
  *
  * Licensed under the Apache License, Version 2.0 (the "License"); you may not
  * use this file except in compliance with the License. You may obtain a copy of
@@ -20,6 +20,7 @@ package partitioned
 import loadbalancer.PartitionedLoadBalancerFactory
 import client.NetworkClientConfig
 import cluster.{ClusterClient}
+import com.linkedin.norbert.network.common.RetryStrategy
 
 /**
  * Author: jhartman
@@ -31,7 +32,10 @@ class PartitionedNetworkClientFactory[PartitionedId](clientName: String,
                                                      closeChannelTimeMillis: Long,
                                                      norbertOutlierMultiplier: Double,
                                                      norbertOutlierConstant: Double,
-                                                     partitionedLoadBalancerFactory: PartitionedLoadBalancerFactory[PartitionedId])
+                                                     partitionedLoadBalancerFactory: PartitionedLoadBalancerFactory[PartitionedId],
+						                                         enableSelectiveRetry: Boolean = false,
+						                                         retryStrategy: RetryStrategy = null,
+                                                     enableReroutingStrategies: Boolean = true)
 {
 
   def createPartitionedNetworkClient : PartitionedNetworkClient[PartitionedId] = {
@@ -40,7 +44,14 @@ class PartitionedNetworkClientFactory[PartitionedId](clientName: String,
     config.closeChannelTimeMillis = closeChannelTimeMillis
     config.outlierMuliplier = norbertOutlierMultiplier
     config.outlierConstant = norbertOutlierConstant
+    config.enableReroutingStrategies = enableReroutingStrategies
     config.clusterClient = ClusterClient(clientName, serviceName, zooKeeperConnectString, zooKeeperSessionTimeoutMillis)
+    if (enableSelectiveRetry) {
+      if (retryStrategy == null)
+        throw new IllegalArgumentException("Retry strategy needs to be provided if you enable selective retry")
+      else
+        config.retryStrategy = Some(retryStrategy)
+    }
     val partitionedNetworkClient = PartitionedNetworkClient(config, partitionedLoadBalancerFactory)
 
     partitionedNetworkClient

@@ -1,46 +1,49 @@
 /**
- * Copyright 2009-2010 LinkedIn, Inc
- *
- * Licensed under the Apache License, Version 2.0 (the "License"); you may not
- * use this file except in compliance with the License. You may obtain a copy of
- * the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
- * WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
- * License for the specific language governing permissions and limitations under
- * the License.
- */
+  * Copyright 2009-2010 LinkedIn, Inc
+  *
+  * Licensed under the Apache License, Version 2.0 (the "License"); you may not
+  * use this file except in compliance with the License. You may obtain a copy of
+  * the License at
+  *
+  * http://www.apache.org/licenses/LICENSE-2.0
+  *
+  * Unless required by applicable law or agreed to in writing, software
+  * distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
+  * WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
+  * License for the specific language governing permissions and limitations under
+  * the License.
+  */
 
 package com.linkedin.norbert.network.netty
 
-import org.specs.Specification
-import org.specs.mock.Mockito
 import java.util.UUID
-import com.linkedin.norbert.norbertutils.MockClock
+
 import com.linkedin.norbert.cluster.Node
 import com.linkedin.norbert.network.common.CachedNetworkStatistics
+import com.linkedin.norbert.norbertutils.MockClock
+import org.specs2.mock.Mockito
+import org.specs2.mutable.SpecificationWithJUnit
 
-class ClientStatisticsRequestStrategySpec extends Specification with Mockito {
+class ClientStatisticsRequestStrategySpec extends SpecificationWithJUnit with Mockito {
+  val mockClock = new MockClock
+
   "ClientStatisticsRequestStrategy" should {
     "route away from misbehaving nodes" in {
-      val statsActor = CachedNetworkStatistics[Node, UUID](MockClock, 1000L, 200L)
+      val statsActor = CachedNetworkStatistics[Node, UUID](mockClock, 1000L, 200L)
 
-      val strategy = new ClientStatisticsRequestStrategy(statsActor, 2.0, 10.0, MockClock)
+      val strategy = new ClientStatisticsRequestStrategy(statsActor, 2.0, 10.0, mockClock)
 
       val nodes = (0 until 5).map { nodeId => Node(nodeId, "foo", true) }
 
       // Give everybody 10 requests
       val requests = nodes.map { node =>
         val uuids = (0 until 10).map(i => UUID.randomUUID)
-        uuids.foreach{ uuid => statsActor.beginRequest(node, uuid) }
+        uuids.foreach { uuid => statsActor.beginRequest(node, uuid, 0) }
         (node, uuids)
       }.toMap
 
-      nodes.dropRight(1).foreach{ node =>
-        MockClock.currentTime = (node.id + 1)
+      nodes.dropRight(1).foreach { node =>
+        mockClock.currentTime = (node.id + 1)
 
         val uuids = requests(node)
         uuids.zipWithIndex.foreach { case (uuid, index) =>
@@ -48,23 +51,23 @@ class ClientStatisticsRequestStrategySpec extends Specification with Mockito {
         }
       }
 
-      MockClock.currentTime = 5
+      mockClock.currentTime = 5
 
       nodes.foreach { node =>
         strategy.canServeRequest(node) must beTrue
-        
+
       }
 
-      MockClock.currentTime = 15
+      mockClock.currentTime = 15
       strategy.canServeRequest(nodes(4)) must beTrue
 
-//      requests(4).zipWithIndex.foreach { case(uuid, index) =>
-//        val nodeId = 4
-//        MockClock.currentTime = 2 * (nodeId + 1) * index
-//        statsActor ! statsActor.Stats.EndRequest(nodeId, uuid)
-//      }
+      //      requests(4).zipWithIndex.foreach { case(uuid, index) =>
+      //        val nodeId = 4
+      //        MockClock.currentTime = 2 * (nodeId + 1) * index
+      //        statsActor ! statsActor.Stats.EndRequest(nodeId, uuid)
+      //      }
 
-//      strategy.canServeRequest(nodes(4)) must beFalse
+      //      strategy.canServeRequest(nodes(4)) must beFalse
 
     }
   }

@@ -1,5 +1,5 @@
 /*
- * Copyright 2009-2010 LinkedIn, Inc
+ * Copyright 2009-2015 LinkedIn, Inc
  *
  * Licensed under the Apache License, Version 2.0 (the "License"); you may not
  * use this file except in compliance with the License. You may obtain a copy of
@@ -18,6 +18,11 @@ package network
 package partitioned
 package loadbalancer
 
+
+import java.util.concurrent.atomic.AtomicBoolean
+
+import com.linkedin.norbert.network.client.loadbalancer.LoadBalancerHelpers
+import com.linkedin.norbert.network.util.ConcurrentCyclicCounter
 
 import _root_.scala.Predef._
 import cluster.{InvalidClusterException, Node}
@@ -61,7 +66,7 @@ trait PartitionedLoadBalancer[PartitionedId] {
 
   /**
    * Calculates a mapping of nodes to partitions to ensure ids belong to the same partition will be scatter to the same node
-   * @param id
+   * @param ids
    * @param capability
    * @param persistentCapability
    * @return
@@ -73,6 +78,43 @@ trait PartitionedLoadBalancer[PartitionedId] {
       map.updated(node, map(node) + id)
     }
   }
+
+  /**
+   * Calculates a mapping of nodes to partitions. The nodes should be selected from the given number of replicas.
+   * Initial implementation is delegating request to maximum degree of fan-out. Implementation should override this
+   * default implementation.
+   *
+   * @param ids set of partition ids.
+   * @param numberOfReplicas number of replica
+   * @param capability
+   * @param persistentCapability
+   * @return a map from node to partition
+   */
+  def nodesForPartitionedIdsInNReplicas(ids: Set[PartitionedId], numberOfReplicas: Int, capability: Option[Long] = None,
+                                       persistentCapability: Option[Long] = None): Map[Node, Set[PartitionedId]] =
+  {
+    // Default implementation is just select nodes from all replicas.
+    nodesForPartitionedIds(ids, capability, persistentCapability)
+  }
+
+  /**
+   * Calculates a mapping of nodes to partitions. The nodes should be selected from the given cluster.
+   * Initial implementation is delegating request to all clusters since default load balancer cannot aware cluster.
+   * Note that cluster aware load balancer should override this default implementation.
+   *
+   * @param ids set of partition ids.
+   * @param clusterId cluster id.
+   * @param capability
+   * @param persistentCapability
+   * @return a map from node to partition
+   */
+  def nodesForPartitionedIdsInOneCluster(ids: Set[PartitionedId], clusterId: Int, capability: Option[Long] = None,
+      persistentCapability: Option[Long] = None): Map[Node, Set[PartitionedId]] =
+  {
+    // Default implementation is just select nodes from all replicas.
+    nodesForPartitionedIds(ids, capability, persistentCapability)
+  }
+
 }
 
 /**
@@ -99,4 +141,46 @@ trait PartitionedLoadBalancerFactory[PartitionedId] {
  */
 trait PartitionedLoadBalancerFactoryComponent[PartitionedId] {
   val loadBalancerFactory: PartitionedLoadBalancerFactory[PartitionedId]
+}
+
+trait PartitionedLoadBalancerHelpers extends LoadBalancerHelpers {
+
+  /**
+   * A mapping from partition id to the <code>Node</code>s which can service that partition.
+   */
+  protected val partitionToNodeMap: Map[Int, (IndexedSeq[Endpoint], ConcurrentCyclicCounter, Array[AtomicBoolean])]
+
+  /**
+   * Given the currently available <code>Node</code>s and the total number of partitions in the cluster, this method
+   * generates a <code>Map</code> of partition id to the <code>Node</code>s which service that partition.
+   *
+   * @param nodes the current available nodes
+   * @param numPartitions the total number of partitions in the cluster
+   *
+   * @return a <code>Map</code> of partition id to the <code>Node</code>s which service that partition
+   * @throws InvalidClusterException thrown if every partition doesn't have at least one available <code>Node</code>
+   * assigned to it
+   */
+  def generatePartitionToNodeMap(nodes: Set[Endpoint], numPartitions: Int, serveRequestsIfPartitionMissing: Boolean): Map[Int, (IndexedSeq[Endpoint], ConcurrentCyclicCounter, Array[AtomicBoolean])]
+
+
+  /**
+   * Calculates a <code>Node</code> which can service a request for the specified partition id.
+   *
+   * @param partitionId the id of the partition
+   *
+   * @return <code>Some</code> with the <code>Node</code> which can service the partition id, <code>None</code>
+   * if there are no available <code>Node</code>s for the partition requested
+   */
+  def nodeForPartition(partitionId: Int, capability: Option[Long] = None, persistentCapability: Option[Long] = None): Option[Node]
+
+  /**
+   * Defines the logic used to return a node when the load balancer is unable to find one that holds a partition
+   * AND is available. 'endpoints' represents the list of endpoints that have the partition and 'idx' is the
+   * current(updated) counter value for that partition. Separate implementations exist for the GC-aware and
+   * default load balancers
+   *
+   */
+  def nodeToReturnWhenNothingViableFound(endpoints: IndexedSeq[Endpoint], idx: Int): Some[Node]
+
 }

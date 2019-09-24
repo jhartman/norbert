@@ -1,0 +1,17 @@
+apply plugin: 'java'
+apply plugin: 'scala'
+
+dependencies {
+  compile project(":cluster$scalaSuffix")
+  compile externalDependency.scalaLibrary
+  compile externalDependency.netty
+  compile externalDependency.slf4jApi
+  compile externalDependency.slf4jLog4j
+  compile externalDependency.scalaActors
+
+  testCompile externalDependency.specs2
+  testCompile externalDependency.cglib
+  testCompile externalDependency.objenesis
+  testCompile externalDependency.junit
+}
+

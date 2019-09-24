@@ -2,15 +2,16 @@ package com.linkedin.norbert
 package network
 package common
 
-import com.linkedin.norbert.cluster.Node
 import java.util.concurrent.atomic.AtomicLong
-import com.linkedin.norbert.norbertutils.Clock
-import scala.math._
-import com.linkedin.norbert.jmx.JMX.MBean
-import collection.mutable.ConcurrentMap
 import java.util.{Map => JMap}
-import collection.JavaConversions._
-import jmx.JMX
+
+import com.linkedin.norbert.cluster.Node
+import com.linkedin.norbert.jmx.JMX
+import com.linkedin.norbert.jmx.JMX.MBean
+import com.linkedin.norbert.norbertutils.Clock
+
+import scala.collection.concurrent.{Map => ConcurrentMap}
+import scala.math._
 
 /**
  * Copyright 2009-2010 LinkedIn, Inc
@@ -44,7 +45,7 @@ object CompositeCanServeRequestStrategy {
 case class CompositeCanServeRequestStrategy(strategies: CanServeRequestStrategy*) extends CanServeRequestStrategy {
   def canServeRequest(node: Node): Boolean = {
     strategies.foreach{ strategy =>
-      if(!strategy.canServeRequest(node))
+      if (!strategy.canServeRequest(node))
         return false
     }
     return true
@@ -63,7 +64,7 @@ private[common] class SimpleBackoff(clock: Clock, minBackoffTime: Long = 100L, m
   val currBackoff = new AtomicLong(0)
 
   def notifyFailure {
-    if(clock.getCurrentTimeMilliseconds - lastError >= minBackoffTime)
+    if (clock.getCurrentTimeMilliseconds - lastError >= minBackoffTime)
       incrementBackoff
   }
 
@@ -79,7 +80,7 @@ private[common] class SimpleBackoff(clock: Clock, minBackoffTime: Long = 100L, m
 
    // If it's been a while since the last error, reset the backoff back to 0
     val currentBackoffTime = currBackoff.get
-    if(currentBackoffTime != 0L && now - lastError > 3 * maxBackoffTime)
+    if (currentBackoffTime != 0L && now - lastError > 3 * maxBackoffTime)
       currBackoff.compareAndSet(currentBackoffTime, 0L)
   }
 
@@ -94,8 +95,9 @@ trait BackoffStrategy extends CanServeRequestStrategy {
   def notifyFailure(node: Node)
 }
 
-class SimpleBackoffStrategy(clock: Clock, minBackoffTime: Long = 100L, maxBackoffTime: Long = 3200L) extends BackoffStrategy {
+class SimpleBackoffStrategy(clock: Clock, enableReroutingStrategies: Boolean = true, minBackoffTime: Long = 100L, maxBackoffTime: Long = 3200L) extends BackoffStrategy {
   import norbertutils._
+
   import collection.JavaConversions._
 
   private[common] val jBackoff = new java.util.concurrent.ConcurrentHashMap[Node, SimpleBackoff]
@@ -109,7 +111,7 @@ class SimpleBackoffStrategy(clock: Clock, minBackoffTime: Long = 100L, maxBackof
 
   def canServeRequest(node: Node): Boolean = {
     val b = jBackoff.get(node)
-    b == null || b.available
+    !enableReroutingStrategies || (b == null || b.available)
   }
 }
 

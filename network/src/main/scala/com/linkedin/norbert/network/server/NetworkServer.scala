@@ -18,6 +18,8 @@ package network
 package server
 
 import java.util.concurrent.atomic.AtomicBoolean
+import java.net.InetAddress
+
 import netty.{NettyNetworkServer, NetworkServerConfig}
 import cluster._
 import logging.Logging
@@ -45,11 +47,56 @@ trait NetworkServer extends Logging {
    */
 
   def registerHandler[RequestMsg, ResponseMsg](handler: RequestMsg => ResponseMsg)
-  (implicit is: InputSerializer[RequestMsg, ResponseMsg], os: OutputSerializer[RequestMsg, ResponseMsg]) {
+                                              (implicit is: InputSerializer[RequestMsg, ResponseMsg], os: OutputSerializer[RequestMsg, ResponseMsg]) {
     messageHandlerRegistry.registerHandler(handler)
   }
 
+  def registerAsyncHandler[RequestMsg, ResponseMsg](handler: (RequestMsg, CallbackContext[ResponseMsg]) => Unit)
+                                                   (implicit is: InputSerializer[RequestMsg, ResponseMsg], os: OutputSerializer[RequestMsg, ResponseMsg]) {
+    messageHandlerRegistry.registerAsyncHandler(handler)
+  }
+
   def addFilters(filters: List[Filter]) : Unit = messageExecutor.addFilters(filters)
+
+  /**
+   * Binds the network server instance to the wildcard address and the port of the <code>Node</code> identified
+   * by the unique URL (machine and port) of the machine. It will look through all nodes in zookeeper to identify it's
+   * own nodeId. There may be issues with this for machines with multiple interfaces, etc as it uses InetAddress.getLocalHost.
+   *
+   * @throws InvalidNodeException thrown if no <code>Node</code> with the specified machine's URL is configured in zookeeper
+   * @throws NetworkingException thrown if unable to bind
+   */
+  def bindByPort(port: Int): Unit = bindByUrl(InetAddress.getLocalHost.getCanonicalHostName, port)
+
+  /**
+   * Binds the network server instance to the wildcard address and the port of the <code>Node</code> identified
+   * by the unique URL (machine and port) of the machine. It will look through all nodes in zookeeper to identify it's
+   * own nodeId.
+   *
+   * @throws InvalidNodeException thrown if no <code>Node</code> with the specified machine's URL is configured in zookeeper
+   * @throws NetworkingException thrown if unable to bind
+   */
+  def bindByUrl(hostname: String, port: Int, markAvailable: Boolean = true): Unit = {
+    log.debug("Ensuring ClusterClient is started")
+    clusterClient.start
+    clusterClient.awaitConnectionUninterruptibly
+
+    val node = clusterClient.nodeByUrl(hostname, port).getOrElse(throw new InvalidNodeException("No node for URL: %s:%d exists".format(hostname, port)))
+
+    //Bind with that node
+    bindNode(node, markAvailable)
+  }
+
+  def bindOrCreateByUrl(hostname: String, port: Int, partitionBuilder:Option[Int => Set[Int]] = None): Unit = {
+    try {
+      bindByUrl(hostname, port)
+    } catch {
+      case ex:InvalidNodeException =>
+        /* This node doesn't exist so we need to create it */
+        clusterClient.addNodeByUrl(hostname, port, partitionBuilder)
+        bindByUrl(hostname, port)
+    }
+  }
 
   /**
    * Binds the network server instance to the wildcard address and the port of the <code>Node</code> identified
@@ -57,7 +104,6 @@ trait NetworkServer extends Logging {
    * <code>Node</code>'s url must be specified in the format hostname:port.
    *
    * @param nodeId the id of the <code>Node</code> this server is associated with.
-   *
    * @throws InvalidNodeException thrown if no <code>Node</code> with the specified <code>nodeId</code> exists
    * @throws NetworkingException thrown if unable to bind
    */
@@ -71,7 +117,6 @@ trait NetworkServer extends Logging {
    * @param nodeId the id of the <code>Node</code> this server is associated with.
    * @param markAvailable if true marks the <code>Node</code> identified by <code>nodeId</code> as available after binding to
    * the port
-   *
    * @throws InvalidNodeException thrown if no <code>Node</code> with the specified <code>nodeId</code> exists or if the
    * format of the <code>Node</code>'s url isn't hostname:port
    * @throws NetworkingException thrown if unable to bind
@@ -86,6 +131,17 @@ trait NetworkServer extends Logging {
     clusterClient.awaitConnectionUninterruptibly
 
     val node = clusterClient.nodeWithId(nodeId).getOrElse(throw new InvalidNodeException("No node with id %d exists".format(nodeId)))
+    bindNode(node, markAvailable, initialCapability)
+  }
+
+  /**
+   * Binds the network server instance to the wildcard address and the port of the <code>Node</code> identified
+   * by the node passed in. The node will need to be found through other means first. Note: there is no validation to
+   * check the validity of the node, that should be done before calling this method.
+   *
+   * @throws NetworkingException thrown if unable to bind
+   */
+  protected def bindNode(node: Node, markAvailable: Boolean, initialCapability: Long = 0L): Unit = doIfNotShutdown {
     clusterIoServer.bind(node, true)
 
     nodeOption = Some(node)
@@ -96,9 +152,10 @@ trait NetworkServer extends Logging {
       def handleClusterEvent(event: ClusterEvent) = event match {
         case ClusterEvents.Connected(_) =>
           if (markAvailableWhenConnected) {
-            log.debug("Marking node with id %d available".format(nodeId))
+            log.debug("Marking node with id %d available".format(node.id))
             try {
-              clusterClient.markNodeAvailable(nodeId, initialCapability)
+              clusterClient.markNodeUnavailable(node.id)
+              clusterClient.markNodeAvailable(node.id, initialCapability)
             } catch {
               case ex: ClusterException => log.error(ex, "Unable to mark node available")
             }
@@ -140,7 +197,7 @@ trait NetworkServer extends Logging {
     clusterClient.markNodeUnavailable(myNode.id)
     markAvailableWhenConnected = false
   }
-  
+
   def setNodeCapabiity(capability: Long): Unit = {
     clusterClient.setNodeCapability(myNode.id, capability)
   }

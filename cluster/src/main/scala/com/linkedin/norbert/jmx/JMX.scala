@@ -36,9 +36,11 @@ object JMX extends Logging {
   val map = collection.mutable.Map.empty[String, Int]
 
   def getUniqueName(name: String): String = synchronized {
+    //TODO switch this to concurrent hash map but that might entail a lot more changes
+    //which might not play nice with scala.
     val id = map.getOrElse(name, -1)
-    val unique = if(id == -1) name else name + "-" + id
-    map + (name -> (id + 1))
+    val unique = if (id == -1) name else name + "-" + id
+    map += (name -> (id + 1))
     unique
   }
 
@@ -49,13 +51,15 @@ object JMX extends Logging {
 
   def unregister(mbean: ObjectInstance) = try {
     mbeanServer.unregisterMBean(mbean.getObjectName)
-    synchronized { map.remove(mbean.getObjectName.getCanonicalName) }
+    //synchronized { map.remove(mbean.getObjectName.getCanonicalName) } //We treat the map as a mapping
+    //from JMX value to a sequence number.
+    //Overflow will result in negative values being used which should be fine.
   } catch {
     case ex: Exception => log.error(ex, "Error while unregistering mbean: %s".format(mbean.getObjectName))
   }
 
   def name(clientName: Option[String], serviceName: String) =
-    if(clientName.isDefined)
+    if (clientName.isDefined)
       "client=%s,service=%s".format(clientName.get, serviceName)
     else
       "service=%s".format(serviceName)

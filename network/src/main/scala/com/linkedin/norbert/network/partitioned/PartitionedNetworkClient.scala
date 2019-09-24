@@ -1,5 +1,5 @@
 /*
- * Copyright 2009-2010 LinkedIn, Inc
+ * Copyright 2009-2015 LinkedIn, Inc
  *
  * Licensed under the Apache License, Version 2.0 (the "License"); you may not
  * use this file except in compliance with the License. You may obtain a copy of
@@ -26,6 +26,18 @@ import client.NetworkClientConfig
 import cluster.{Node, ClusterDisconnectedException, InvalidClusterException, ClusterClientComponent}
 import scala.util.Random
 
+object RoutingConfigs {
+  val defaultRoutingConfigs = new RoutingConfigs(false, false)
+  def getDefaultRoutingConfigs():RoutingConfigs = {
+    defaultRoutingConfigs
+  }
+}
+
+class RoutingConfigs(SelectiveRetry: Boolean, DuplicatesOk: Boolean ) {
+  val selectiveRetry = SelectiveRetry
+  val duplicatesOk = DuplicatesOk
+}
+
 object PartitionedNetworkClient {
   def apply[PartitionedId](config: NetworkClientConfig, loadBalancerFactory: PartitionedLoadBalancerFactory[PartitionedId]): PartitionedNetworkClient[PartitionedId] = {
     val nc = new NettyPartitionedNetworkClient(config, loadBalancerFactory)
@@ -42,14 +54,22 @@ object PartitionedNetworkClient {
     nc.start
     nc
   }
-
 }
 
 /**
  * The network client interface for interacting with nodes in a partitioned cluster.
  */
 trait PartitionedNetworkClient[PartitionedId] extends BaseNetworkClient {
+
   this: ClusterClientComponent with ClusterIoClientComponent  with PartitionedLoadBalancerFactoryComponent[PartitionedId] =>
+
+  var duplicatesOk:Boolean = false
+  var retryStrategy:Option[RetryStrategy] = None
+  def setConfig(config:NetworkClientConfig): Unit = {
+    duplicatesOk = config.duplicatesOk
+    if (retryStrategy != null)
+      retryStrategy = config.retryStrategy
+  }
 
   @volatile private var loadBalancer: Option[Either[InvalidClusterException, PartitionedLoadBalancer[PartitionedId]]] = None
 
@@ -59,8 +79,8 @@ trait PartitionedNetworkClient[PartitionedId] extends BaseNetworkClient {
 
   def sendRequest[RequestMsg, ResponseMsg](id: PartitionedId, request: RequestMsg, callback: Either[Throwable, ResponseMsg] => Unit, capability: Option[Long])
   (implicit is: InputSerializer[RequestMsg, ResponseMsg], os: OutputSerializer[RequestMsg, ResponseMsg]): Unit =
-    sendRequest(id, request, callback, capability, None) 
- 
+    sendRequest(id, request, callback, capability, None)
+
   def sendRequest[RequestMsg, ResponseMsg](id: PartitionedId, request: RequestMsg, callback: Either[Throwable, ResponseMsg] => Unit, capability: Option[Long], persistentCapability: Option[Long])
   (implicit is: InputSerializer[RequestMsg, ResponseMsg], os: OutputSerializer[RequestMsg, ResponseMsg]): Unit = doIfConnected {
     if (id == null || request == null) throw new NullPointerException
@@ -150,7 +170,7 @@ trait PartitionedNetworkClient[PartitionedId] extends BaseNetworkClient {
    * must be sent to.  This method is asynchronous and will return immediately.
    *
    * @param id the <code>PartitionedId</code> to which the message is addressed
-   * @param message the message to send
+   * @param request the request to send
    *
    * @return a future which will become available when a response to the message is received
    * @throws InvalidClusterException thrown if the cluster is currently in an invalid state
@@ -162,14 +182,14 @@ trait PartitionedNetworkClient[PartitionedId] extends BaseNetworkClient {
   def sendRequest[RequestMsg, ResponseMsg](id: PartitionedId, request: RequestMsg)
   (implicit is: InputSerializer[RequestMsg, ResponseMsg], os: OutputSerializer[RequestMsg, ResponseMsg]): Future[ResponseMsg] =
     sendRequest(id, request, None, None)
- 
+
   def sendRequest[RequestMsg, ResponseMsg](id: PartitionedId, request: RequestMsg, capability: Option[Long])
-  (implicit is: InputSerializer[RequestMsg, ResponseMsg], os: OutputSerializer[RequestMsg, ResponseMsg]): Future[ResponseMsg] = 
-    sendRequest(id, request, capability, None) 
- 
+  (implicit is: InputSerializer[RequestMsg, ResponseMsg], os: OutputSerializer[RequestMsg, ResponseMsg]): Future[ResponseMsg] =
+    sendRequest(id, request, capability, None)
+
   def sendRequest[RequestMsg, ResponseMsg](id: PartitionedId, request: RequestMsg, capability: Option[Long], persistentCapability: Option[Long])
   (implicit is: InputSerializer[RequestMsg, ResponseMsg], os: OutputSerializer[RequestMsg, ResponseMsg]): Future[ResponseMsg] = {
-    val future = new FutureAdapter[ResponseMsg]
+    val future = new FutureAdapterListener[ResponseMsg]
     sendRequest(id, request, future, capability, persistentCapability)
     future
   }
@@ -180,7 +200,7 @@ trait PartitionedNetworkClient[PartitionedId] extends BaseNetworkClient {
    * must be sent to.  This method is asynchronous and will return immediately.
    *
    * @param ids the <code>PartitionedId</code>s to which the message is addressed
-   * @param message the request to send
+   * @param request the request to send
    *
    * @return a <code>ResponseIterator</code>. One response will be returned by each <code>Node</code>
    * the message was sent to.
@@ -195,12 +215,11 @@ trait PartitionedNetworkClient[PartitionedId] extends BaseNetworkClient {
 
   def sendRequest[RequestMsg, ResponseMsg](ids: Set[PartitionedId], request: RequestMsg, capability: Option[Long])
   (implicit is: InputSerializer[RequestMsg, ResponseMsg], os: OutputSerializer[RequestMsg, ResponseMsg]): ResponseIterator[ResponseMsg] =
-    sendRequest(ids, request, capability, None) 
- 
+    sendRequest(ids, request, capability, None)
+
   def sendRequest[RequestMsg, ResponseMsg](ids: Set[PartitionedId], request: RequestMsg, capability: Option[Long], persistentCapability: Option[Long])
-  (implicit is: InputSerializer[RequestMsg, ResponseMsg], os: OutputSerializer[RequestMsg, ResponseMsg]): ResponseIterator[ResponseMsg] = doIfConnected {
+  (implicit is: InputSerializer[RequestMsg, ResponseMsg], os: OutputSerializer[RequestMsg, ResponseMsg]): ResponseIterator[ResponseMsg] =
     sendRequest(ids, (node: Node, ids: Set[PartitionedId]) => request, capability, persistentCapability)(is, os)
-  }
 
   /**
    * Sends a <code>Message</code> to the specified <code>PartitionedId</code>s. The <code>PartitionedNetworkClient</code>
@@ -208,7 +227,6 @@ trait PartitionedNetworkClient[PartitionedId] extends BaseNetworkClient {
    * must be sent to.  This method is asynchronous and will return immediately.
    *
    * @param ids the <code>PartitionedId</code>s to which the message is addressed
-   * @param message the message to send
    * @param requestBuilder A method which allows the user to generate a specialized request for a set of partitions
    * before it is sent to the <code>Node</code>.
    *
@@ -223,13 +241,42 @@ trait PartitionedNetworkClient[PartitionedId] extends BaseNetworkClient {
   (implicit is: InputSerializer[RequestMsg, ResponseMsg], os: OutputSerializer[RequestMsg, ResponseMsg]): ResponseIterator[ResponseMsg] =
     sendRequest(ids, requestBuilder, None, None)
 
+  def sendRequest[RequestMsg, ResponseMsg](ids: Set[PartitionedId], numberOfReplicas: Int, requestBuilder: (Node, Set[PartitionedId]) => RequestMsg)
+                                          (implicit is: InputSerializer[RequestMsg, ResponseMsg], os: OutputSerializer[RequestMsg, ResponseMsg]): ResponseIterator[ResponseMsg] =
+    sendRequest(ids, numberOfReplicas, requestBuilder, None, None)
+
+  def sendRequest[RequestMsg, ResponseMsg](ids: Set[PartitionedId], numberOfReplicas: Int, requestBuilder: (Node, Set[PartitionedId]) => RequestMsg, capability: Option[Long])
+                                          (implicit is: InputSerializer[RequestMsg, ResponseMsg], os: OutputSerializer[RequestMsg, ResponseMsg]): ResponseIterator[ResponseMsg] =
+    sendRequest(ids, numberOfReplicas, requestBuilder, capability, None)
+
   def sendRequest[RequestMsg, ResponseMsg](ids: Set[PartitionedId], requestBuilder: (Node, Set[PartitionedId]) => RequestMsg, capability: Option[Long])
   (implicit is: InputSerializer[RequestMsg, ResponseMsg], os: OutputSerializer[RequestMsg, ResponseMsg]): ResponseIterator[ResponseMsg] =
     sendRequest(ids, requestBuilder, capability, None)
- 
+
+  def sendRequest[RequestMsg, ResponseMsg](ids: Set[PartitionedId], numberOfReplicas: Int, requestBuilder: (Node, Set[PartitionedId]) => RequestMsg, capability: Option[Long], dupOk : Boolean)
+                                          (implicit is: InputSerializer[RequestMsg, ResponseMsg], os: OutputSerializer[RequestMsg, ResponseMsg]): ResponseIterator[ResponseMsg] =
+    sendRequest(ids, numberOfReplicas, requestBuilder, 0, capability, None, new RoutingConfigs(retryStrategy != None, dupOk))
+
+  def sendRequest[RequestMsg, ResponseMsg](ids: Set[PartitionedId], requestBuilder: (Node, Set[PartitionedId]) => RequestMsg, capability: Option[Long], dupOk : Boolean)
+                                          (implicit is: InputSerializer[RequestMsg, ResponseMsg], os: OutputSerializer[RequestMsg, ResponseMsg]): ResponseIterator[ResponseMsg] =
+    sendRequest(ids, 0, requestBuilder, 0, capability, None, new RoutingConfigs(retryStrategy != None, dupOk))
+
+  def sendRequest[RequestMsg, ResponseMsg](ids: Set[PartitionedId], requestBuilder: (Node, Set[PartitionedId]) => RequestMsg, capability: Option[Long], routingConfigs : RoutingConfigs)
+  (implicit is: InputSerializer[RequestMsg, ResponseMsg], os: OutputSerializer[RequestMsg, ResponseMsg]): ResponseIterator[ResponseMsg] =
+    sendRequest(ids, 0, requestBuilder, 0, capability, None, routingConfigs, None)
+
+  def sendRequest[RequestMsg, ResponseMsg](ids: Set[PartitionedId], requestBuilder: (Node, Set[PartitionedId]) => RequestMsg, capability: Option[Long], routingConfigs : RoutingConfigs, retryStrategy: Option[RetryStrategy])
+  (implicit is: InputSerializer[RequestMsg, ResponseMsg], os: OutputSerializer[RequestMsg, ResponseMsg]): ResponseIterator[ResponseMsg] =
+    sendRequest(ids, 0, requestBuilder, 0, capability, None, routingConfigs, retryStrategy)
+
   def sendRequest[RequestMsg, ResponseMsg](ids: Set[PartitionedId], requestBuilder: (Node, Set[PartitionedId]) => RequestMsg, capability: Option[Long], persistentCapability: Option[Long])
   (implicit is: InputSerializer[RequestMsg, ResponseMsg], os: OutputSerializer[RequestMsg, ResponseMsg]): ResponseIterator[ResponseMsg] = doIfConnected {
-    sendRequest(ids, requestBuilder, 0, capability, persistentCapability)
+    sendRequest(ids, 0, requestBuilder, 0, capability, persistentCapability)
+  }
+
+  def sendRequest[RequestMsg, ResponseMsg](ids: Set[PartitionedId], numberOfReplicas: Int, requestBuilder: (Node, Set[PartitionedId]) => RequestMsg, capability: Option[Long], persistentCapability: Option[Long])
+                                          (implicit is: InputSerializer[RequestMsg, ResponseMsg], os: OutputSerializer[RequestMsg, ResponseMsg]): ResponseIterator[ResponseMsg] = doIfConnected {
+    sendRequest(ids, numberOfReplicas, requestBuilder, 0, capability, persistentCapability)
   }
 
   /**
@@ -238,7 +285,7 @@ trait PartitionedNetworkClient[PartitionedId] extends BaseNetworkClient {
    * must be sent to.  This method is asynchronous and will return immediately.
    *
    * @param ids the <code>PartitionedId</code>s to which the message is addressed
-   * @param message the message to send
+   * @param numberOfReplicas the number of replica you want to fan-out requests.
    * @param requestBuilder A method which allows the user to generate a specialized request for a set of partitions
    * before it is sent to the <code>Node</code>.
    * @param maxRetry maxium # of retry attempts
@@ -251,28 +298,106 @@ trait PartitionedNetworkClient[PartitionedId] extends BaseNetworkClient {
    * @throws ClusterDisconnectedException thrown if the <code>PartitionedNetworkClient</code> is not connected to the cluster
    */
   // TODO: investigate interplay between default parameter and implicits
+  def sendRequest[RequestMsg, ResponseMsg](ids: Set[PartitionedId], numberOfReplicas: Int, requestBuilder: (Node, Set[PartitionedId]) => RequestMsg, maxRetry: Int)
+                                          (implicit is: InputSerializer[RequestMsg, ResponseMsg], os: OutputSerializer[RequestMsg, ResponseMsg]): ResponseIterator[ResponseMsg] =
+    sendRequest(ids, numberOfReplicas, requestBuilder, maxRetry, None, None)
+
   def sendRequest[RequestMsg, ResponseMsg](ids: Set[PartitionedId], requestBuilder: (Node, Set[PartitionedId]) => RequestMsg, maxRetry: Int)
   (implicit is: InputSerializer[RequestMsg, ResponseMsg], os: OutputSerializer[RequestMsg, ResponseMsg]): ResponseIterator[ResponseMsg] =
-   sendRequest(ids, requestBuilder, maxRetry, None, None)
-  
-  def sendRequest[RequestMsg, ResponseMsg](ids: Set[PartitionedId], requestBuilder: (Node, Set[PartitionedId]) => RequestMsg, maxRetry: Int, capability: Option[Long])
-  (implicit is: InputSerializer[RequestMsg, ResponseMsg], os: OutputSerializer[RequestMsg, ResponseMsg]): ResponseIterator[ResponseMsg] = 
-   sendRequest(ids, requestBuilder, maxRetry, capability, None)
+   sendRequest(ids, 0, requestBuilder, maxRetry, None, None)
 
-  def sendRequest[RequestMsg, ResponseMsg](ids: Set[PartitionedId], requestBuilder: (Node, Set[PartitionedId]) => RequestMsg, maxRetry: Int, capability: Option[Long], persistentCapability: Option[Long])
-                                          (implicit is: InputSerializer[RequestMsg, ResponseMsg], os: OutputSerializer[RequestMsg, ResponseMsg]): ResponseIterator[ResponseMsg] = doIfConnected {
+  def sendRequest[RequestMsg, ResponseMsg](ids: Set[PartitionedId], requestBuilder: (Node, Set[PartitionedId]) => RequestMsg, maxRetry: Int, capability: Option[Long])
+  (implicit is: InputSerializer[RequestMsg, ResponseMsg], os: OutputSerializer[RequestMsg, ResponseMsg]): ResponseIterator[ResponseMsg] =
+   sendRequest(ids, 0, requestBuilder, maxRetry, capability, None)
+
+  def sendRequest[RequestMsg, ResponseMsg](ids: Set[PartitionedId], numberOfReplicas: Int,
+      requestBuilder: (Node, Set[PartitionedId]) => RequestMsg, maxRetry: Int, capability: Option[Long],
+      persistentCapability: Option[Long],
+      routingConfigs: RoutingConfigs = new RoutingConfigs(retryStrategy != None, duplicatesOk),
+      retryStrategy: Option[RetryStrategy] = retryStrategy)
+    (implicit is: InputSerializer[RequestMsg, ResponseMsg],
+        os: OutputSerializer[RequestMsg, ResponseMsg]): ResponseIterator[ResponseMsg] =
+    sendRequest(ids, numberOfReplicas, None, requestBuilder, maxRetry, capability, persistentCapability, routingConfigs,
+        retryStrategy)
+
+  def sendRequest[RequestMsg, ResponseMsg](ids: Set[PartitionedId], numberOfReplicas: Int, clusterId: Option[Int],
+      requestBuilder: (Node, Set[PartitionedId]) => RequestMsg, maxRetry: Int, capability: Option[Long],
+      persistentCapability: Option[Long],
+      routingConfigs: RoutingConfigs,
+      retryStrategy: Option[RetryStrategy])
+    (implicit is: InputSerializer[RequestMsg, ResponseMsg],
+        os: OutputSerializer[RequestMsg, ResponseMsg]): ResponseIterator[ResponseMsg] = doIfConnected
+  {
     if (ids == null || requestBuilder == null) throw new NullPointerException
-    val nodes = calculateNodesFromIds(ids, capability, persistentCapability)
-    val queue = new ResponseQueue[ResponseMsg]
-    val resIter = new NorbertDynamicResponseIterator[ResponseMsg](nodes.size, queue)
-    nodes.foreach { case (node, idsForNode) =>
-      try {
-        doSendRequest(PartitionedRequest(requestBuilder(node, idsForNode), node, idsForNode, requestBuilder, is, os, if (maxRetry == 0) Some((a: Either[Throwable, ResponseMsg]) => {queue += a :Unit}) else Some(retryCallback[RequestMsg, ResponseMsg](queue.+=, maxRetry, capability, persistentCapability)_), 0, Some(resIter)))
-      } catch {
-        case ex: Exception => queue += Left(ex)
-      }
+
+    val nodes = clusterId match {
+      case Some(clusterId:Int) => calculateNodesFromIdsInCluster (ids, clusterId, capability, persistentCapability)
+      case None => calculateNodesFromIds (ids, numberOfReplicas, capability, persistentCapability)
     }
-    resIter
+
+    log.debug("Total number of ids: %d, selected nodes: %d, ids per node: [%s]".format(ids.size, nodes.size,
+      nodes.view.map {
+        case (node, idsForNode) => idsForNode.size
+      } mkString("", ",", "")
+    ))
+
+    if (nodes.size <= 1 || !routingConfigs.selectiveRetry || retryStrategy == None) {
+      val queue = new ResponseQueue[ResponseMsg]
+      val resIter = new NorbertDynamicResponseIterator[ResponseMsg](nodes.size, queue)
+      nodes.foreach { case (node, idsForNode) =>
+        try {
+          doSendRequest(PartitionedRequest(requestBuilder(node, idsForNode), node, idsForNode, requestBuilder, is, os, if (maxRetry == 0) Some((a: Either[Throwable, ResponseMsg]) => {queue += a :Unit}) else Some(retryCallback[RequestMsg, ResponseMsg](queue.+=, maxRetry, capability, persistentCapability)_), 0, Some(resIter)))
+        } catch {
+          case ex: Exception => queue += Left(ex)
+        }
+      }
+      return resIter
+    } else {
+      val nodes = clusterId match {
+        case Some(clusterId:Int) => calculateNodesFromIdsInCluster (ids, clusterId, None, None)
+        case None => calculateNodesFromIds (ids, numberOfReplicas, None, None)
+      }
+      var setRequests: Map[PartitionedId, Node] = Map.empty[PartitionedId, Node]
+      nodes.foreach {
+        case (node, pids) => {
+          pids.foreach{
+	          case(pid) => setRequests += pid->node
+          }
+        }
+      }
+      val queue = new ResponseQueue[Tuple3[Node, Set[PartitionedId], ResponseMsg]]
+
+      /* wrapper so that iterator does not have to care about capability stuff */
+      def calculateNodesFromIdsSRetry(ids: Set[PartitionedId], excludedNodes: Set[Node], maxAttempts: Int)
+                                      :Map[Node, Set[PartitionedId]] = {
+        calculateNodesFromIds(ids, excludedNodes, maxAttempts, capability, persistentCapability).toMap
+      }
+
+      val resIter = new SelectiveRetryIterator[PartitionedId, RequestMsg, ResponseMsg](
+                    nodes.size, retryStrategy.get.initialTimeout, doSendRequest, setRequests,
+                    queue, calculateNodesFromIdsSRetry, requestBuilder, is, os, retryStrategy,
+                    routingConfigs.duplicatesOk)
+
+      nodes.foreach {
+        case (node, idsForNode) => {
+          def callback(a:Either[Throwable, ResponseMsg]):Unit = {
+            a match {
+              case Left(t) => queue += Left(t)
+              case Right(r) => queue += Right(Tuple3(node, idsForNode, r))
+            }
+          }
+          try {
+            doSendRequest(PartitionedRequest(
+                          requestBuilder(node, idsForNode), node, idsForNode, requestBuilder, is, os,
+                          Some((a: Either[Throwable, ResponseMsg]) => {callback(a)}), 0, Some(resIter))
+                          )
+          } catch {
+            case ex: Exception => queue += Left(ex)
+          }
+        }
+      }
+      resIter
+    }
   }
 
   /**
@@ -281,7 +406,6 @@ trait PartitionedNetworkClient[PartitionedId] extends BaseNetworkClient {
    * must be sent to.  This method is synchronous and will return once the responseAggregator has returned a value.
    *
    * @param ids the <code>PartitionedId</code>s to which the message is addressed
-   * @param message the message to send
    * @param requestBuilder A method which allows the user to generate a specialized request for a set of partitions
    * before it is sent to the <code>Node</code>.
    * @param responseAggregator a callback method which allows the user to aggregate all the responses
@@ -302,6 +426,13 @@ trait PartitionedNetworkClient[PartitionedId] extends BaseNetworkClient {
     sendRequest(ids, requestBuilder, responseAggregator, None, None)
 
   def sendRequest[RequestMsg, ResponseMsg, Result](ids: Set[PartitionedId],
+                                                   numberOfReplicas: Int,
+                                                   requestBuilder: (Node, Set[PartitionedId]) => RequestMsg,
+                                                   responseAggregator: (ResponseIterator[ResponseMsg]) => Result)
+                                                  (implicit is: InputSerializer[RequestMsg, ResponseMsg], os: OutputSerializer[RequestMsg, ResponseMsg]): Result =
+    sendRequest(ids, numberOfReplicas, requestBuilder, responseAggregator, None, None)
+
+  def sendRequest[RequestMsg, ResponseMsg, Result](ids: Set[PartitionedId],
                                                    requestBuilder: (Node, Set[PartitionedId]) => RequestMsg,
                                                    responseAggregator: (ResponseIterator[ResponseMsg]) => Result,
                                                    capability: Option[Long])
@@ -313,9 +444,18 @@ trait PartitionedNetworkClient[PartitionedId] extends BaseNetworkClient {
                                                    responseAggregator: (ResponseIterator[ResponseMsg]) => Result,
                                                    capability: Option[Long],
                                                    persistentCapability: Option[Long])
+                                                  (implicit is: InputSerializer[RequestMsg, ResponseMsg], os: OutputSerializer[RequestMsg, ResponseMsg]): Result =
+    sendRequest(ids, 0, requestBuilder, responseAggregator, capability, persistentCapability)
+
+  def sendRequest[RequestMsg, ResponseMsg, Result](ids: Set[PartitionedId],
+                                                   numberOfReplicas: Int,
+                                                   requestBuilder: (Node, Set[PartitionedId]) => RequestMsg,
+                                                   responseAggregator: (ResponseIterator[ResponseMsg]) => Result,
+                                                   capability: Option[Long],
+                                                   persistentCapability: Option[Long])
   (implicit is: InputSerializer[RequestMsg, ResponseMsg], os: OutputSerializer[RequestMsg, ResponseMsg]): Result = doIfConnected {
     if (responseAggregator == null) throw new NullPointerException
-    responseAggregator(sendRequest[RequestMsg, ResponseMsg](ids, requestBuilder, capability, persistentCapability))
+    responseAggregator(sendRequest[RequestMsg, ResponseMsg](ids, numberOfReplicas, requestBuilder, capability, persistentCapability))
   }
 
   /**
@@ -340,10 +480,8 @@ trait PartitionedNetworkClient[PartitionedId] extends BaseNetworkClient {
     sendRequestToOneReplica(id, request, capability, None)
 
   def sendRequestToOneReplica[RequestMsg, ResponseMsg](id: PartitionedId, request: RequestMsg, capability: Option[Long], persistentCapability: Option[Long])
-  (implicit is: InputSerializer[RequestMsg, ResponseMsg], os: OutputSerializer[RequestMsg, ResponseMsg]): ResponseIterator[ResponseMsg]  = doIfConnected {
+  (implicit is: InputSerializer[RequestMsg, ResponseMsg], os: OutputSerializer[RequestMsg, ResponseMsg]): ResponseIterator[ResponseMsg]  =
     sendRequestToOneReplica(id, (node: Node, partitions: Set[Int]) => request, capability, persistentCapability)(is, os)
-  }
-
 
 
   /**
@@ -395,7 +533,7 @@ trait PartitionedNetworkClient[PartitionedId] extends BaseNetworkClient {
       nodes.foldLeft((false, Map.empty[Int, Set[Node]])) { case ((hasInconsistency, map), (node, ids)) =>
 
       val thisNodeInconsistency = ids.foldLeft(hasInconsistency) { (hasInconsistency, id) =>
-        if(map.contains(id)) {
+        if (map.contains(id)) {
           // This is a no-no. This partition id is being sent to another node.
           val otherNodes = map(id)
           for (otherNode <- otherNodes) {
@@ -418,7 +556,7 @@ trait PartitionedNetworkClient[PartitionedId] extends BaseNetworkClient {
       })
     }
 
-    if(hasInconsistency) {
+    if (hasInconsistency) {
       // Fix it up our nodes
       correctRequestPartitioning(nodes, partitionToNodes)
     } else {
@@ -431,7 +569,7 @@ trait PartitionedNetworkClient[PartitionedId] extends BaseNetworkClient {
 
   def correctRequestPartitioning(nodes: Map[Node, Set[Int]], partitionToNodes: Map[Int, Set[Node]]): Map[Node, Set[Int]] = {
     partitionToNodes.foldLeft(Map.empty[Node, Set[Int]]) { case (map, (partitionId, candidates)) =>
-      val nodeToUse = if(candidates.size == 1) {
+      val nodeToUse = if (candidates.size == 1) {
         candidates.head
       } else {
         // randomly select
@@ -450,7 +588,7 @@ trait PartitionedNetworkClient[PartitionedId] extends BaseNetworkClient {
     sendRequestToReplicas(id, request, maxRetry, None, None)
 
   def sendRequestToReplicas[RequestMsg, ResponseMsg](id: PartitionedId, request: RequestMsg, maxRetry : Int, capability: Option[Long])
-                                                      (implicit is: InputSerializer[RequestMsg, ResponseMsg], os: OutputSerializer[RequestMsg, ResponseMsg]): ResponseIterator[ResponseMsg] = sendRequestToReplicas(id, request, maxRetry, capability, None)  
+                                                      (implicit is: InputSerializer[RequestMsg, ResponseMsg], os: OutputSerializer[RequestMsg, ResponseMsg]): ResponseIterator[ResponseMsg] = sendRequestToReplicas(id, request, maxRetry, capability, None)
 
   def sendRequestToReplicas[RequestMsg, ResponseMsg](id: PartitionedId, request: RequestMsg, maxRetry : Int, capability: Option[Long], persistentCapability: Option[Long])
                                                        (implicit is: InputSerializer[RequestMsg, ResponseMsg], os: OutputSerializer[RequestMsg, ResponseMsg]): ResponseIterator[ResponseMsg] = doIfConnected {
@@ -496,7 +634,7 @@ trait PartitionedNetworkClient[PartitionedId] extends BaseNetworkClient {
   def sendRequestToPartitions[RequestMsg, ResponseMsg](id: PartitionedId, partitions: Set[Int], requestBuilder: (Node, Set[Int]) => RequestMsg, capability: Option[Long])
                                                       (implicit is: InputSerializer[RequestMsg, ResponseMsg],
                                                        os: OutputSerializer[RequestMsg, ResponseMsg]): ResponseIterator[ResponseMsg]  =
-    sendRequestToPartitions(id, partitions, requestBuilder, None, None) 
+    sendRequestToPartitions(id, partitions, requestBuilder, None, None)
 
   def sendRequestToPartitions[RequestMsg, ResponseMsg](id: PartitionedId, partitions: Set[Int], requestBuilder: (Node, Set[Int]) => RequestMsg, capability: Option[Long], persistentCapability: Option[Long])
                                                       (implicit is: InputSerializer[RequestMsg, ResponseMsg],
@@ -581,7 +719,23 @@ trait PartitionedNetworkClient[PartitionedId] extends BaseNetworkClient {
     ids.foldLeft(Map[Node, Set[PartitionedId]]().withDefaultValue(Set())) { (map, id) =>
       val node = lb.nextNode(id, capability, persistentCapability).getOrElse(throw new NoNodesAvailableException("Unable to satisfy request, no node available for id %s".format(id)))
       map.updated(node, map(node) + id)
-    } 
+    }
+  }
+
+  private def calculateNodesFromIds(ids: Set[PartitionedId], numberOfReplicas: Int, capability: Option[Long],
+                                    persistentCapability: Option[Long]): Map[Node,
+    Set[PartitionedId]] = numberOfReplicas match {
+    case 0 => calculateNodesFromIds(ids, capability, persistentCapability)
+    case _ => {
+      val lb = loadBalancer.getOrElse(throw new ClusterDisconnectedException).fold(ex => throw ex, lb => lb)
+      lb.nodesForPartitionedIdsInNReplicas(ids, numberOfReplicas, capability, persistentCapability)
+    }
+  }
+
+  private def calculateNodesFromIdsInCluster (ids: Set[PartitionedId], clusterId: Int, capability: Option[Long],
+      persistentCapability: Option[Long]): Map[Node, Set[PartitionedId]] = {
+    val lb = loadBalancer.getOrElse(throw new ClusterDisconnectedException).fold(ex => throw ex, lb => lb)
+    lb.nodesForPartitionedIdsInOneCluster(ids, clusterId, capability, persistentCapability)
   }
 
   /**

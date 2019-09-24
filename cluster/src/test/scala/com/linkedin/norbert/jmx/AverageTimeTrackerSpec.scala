@@ -16,34 +16,40 @@
 package com.linkedin.norbert
 package jmx
 
-import org.specs.Specification
-import norbertutils.{SystemClock, MockClock, Clock, ClockComponent}
+import com.linkedin.norbert.norbertutils.MockClock
+import org.specs2.mutable.SpecificationWithJUnit
+import org.specs2.specification.Scope
 
-class AverageTimeTrackerSpec extends Specification {
+class AverageTimeTrackerSpec extends SpecificationWithJUnit {
+
+  trait RequestTimeTrackerSetup extends Scope {
+    val clock = new MockClock
+  }
+
   "RequestTimeTracker" should {
-    "correctly average the times provided" in {
-      val a = new FinishedRequestTimeTracker(MockClock, 100)
-      (1 to 100).foreach{ t =>
+    "correctly average the times provided" in new RequestTimeTrackerSetup {
+      val a = new FinishedRequestTimeTracker(clock, 100)
+      (1 to 100).foreach { t =>
         a.addTime(t)
-        MockClock.currentTime = t
+        clock.currentTime = t
       }
+
       a.total must be_==(5050)
 
       a.addTime(101)
-      MockClock.currentTime = 101
+      clock.currentTime = 101
 
       a.total must be_==(5150) // first one gets knocked out
     }
 
-    "Correctly calculate unfinished times" in {
-       val tracker = new PendingRequestTimeTracker[Int](MockClock)
+    "Correctly calculate unfinished times" in new RequestTimeTrackerSetup {
+      val tracker = new PendingRequestTimeTracker[Int](clock)
 
-       (0 until 10).foreach { i =>
-         MockClock.currentTime = 1000L * i
-         tracker.beginRequest(i)
-         (tracker.total / (i + 1)) must be_==(1000L * i / 2)
-       }
+      (0 until 10).foreach { i =>
+        clock.currentTime = 1000L * i
+        tracker.beginRequest(i, 0)
+        (tracker.total / (i + 1)) must be_==(1000L * i / 2)
+      }
     }
-
   }
 }

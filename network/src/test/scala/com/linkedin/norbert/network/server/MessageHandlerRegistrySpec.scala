@@ -17,51 +17,49 @@ package com.linkedin.norbert
 package network
 package server
 
-import org.specs.Specification
-import org.specs.mock.Mockito
-import protos.NorbertExampleProtos
-import common.SampleMessage
+import com.linkedin.norbert.network.common.SampleMessage
+import org.specs2.mock.Mockito
+import org.specs2.mutable.SpecificationWithJUnit
+import org.specs2.specification.Scope
 
-class MessageHandlerRegistrySpec extends Specification with Mockito with SampleMessage {
-  val messageHandlerRegistry = new MessageHandlerRegistry
+class MessageHandlerRegistrySpec extends SpecificationWithJUnit with Mockito with SampleMessage {
 
-  var handled: Ping = _
-  val handler = (ping: Ping) => {
-    handled = ping
-    ping
+  trait MessageHandlerRegistrySetup extends Scope {
+    val messageHandlerRegistry = new MessageHandlerRegistry
+
+    var handled: Ping = _
+    val handler = (ping: Ping) => {
+      handled = ping
+      ping
+    }
   }
 
-
   "MessageHandlerRegistry" should {
-    "return the handler for the specified request message" in {
+    "return the handler for the specified request message" in new MessageHandlerRegistrySetup {
       messageHandlerRegistry.registerHandler(handler)
 
-      val h = messageHandlerRegistry.handlerFor[Ping, Ping](Ping.PingSerializer.requestName)
+      val h = messageHandlerRegistry.getHandler[Ping, Ping](Ping.PingSerializer.requestName) match {
+        case sync: SyncHandlerEntry[Ping, Ping] => sync.handler
+      }
 
       h(request) must be_==(request)
       handled must be_==(request)
     }
 
-    "throw an InvalidMessageException if no handler is registered" in {
-      messageHandlerRegistry.handlerFor(Ping.PingSerializer.requestName) must throwA[InvalidMessageException]
+    "throw an InvalidMessageException if no sync handler is registered" in new MessageHandlerRegistrySetup {
+      messageHandlerRegistry.getHandler(Ping.PingSerializer.requestName) must throwA[InvalidMessageException]
     }
 
-    "return true if the provided response is a valid response for the given request" in {
+    "throw an InvalidMessageException if no async handler is registered" in new MessageHandlerRegistrySetup {
+      messageHandlerRegistry.getHandler(Ping.PingSerializer.requestName) must throwA[InvalidMessageException]
+    }
+
+    "return true if the provided response is a valid response for the given request" in new MessageHandlerRegistrySetup {
       messageHandlerRegistry.registerHandler(handler)
-//      messageHandlerRegistry.validResponseFor(proto, NorbertExampleProtos.Ping.newBuilder.setTimestamp(System.currentTimeMillis).build) must beTrue
     }
 
-    "return false if the provided response is not a valid response for the given request" in {
+    "return false if the provided response is not a valid response for the given request" in new MessageHandlerRegistrySetup {
       messageHandlerRegistry.registerHandler(handler)
-//      messageHandlerRegistry.validResponseFor(proto, mock[Message]) must beFalse
     }
-
-//    "correctly handles null in validResponseFor" in {
-//      messageHandlerRegistry.registerHandler(proto, null, handler)
-//      messageHandlerRegistry.validResponseFor(proto, null) must beTrue
-//
-//      messageHandlerRegistry.registerHandler(proto, proto, handler)
-//      messageHandlerRegistry.validResponseFor(proto, null) must beFalse
-//    }
   }
 }
